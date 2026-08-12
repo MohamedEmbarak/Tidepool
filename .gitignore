@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+.swc/
+.claude/
+build/
+*.tsbuildinfo
+next-env.d.ts
+.env*.local
+.DS_Store
+npm-debug.log*
+*.stackdump
