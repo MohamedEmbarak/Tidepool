@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { arbitrateTouch } from '@/lib/gesture';
 import { usePrefersReducedMotion } from '@/lib/hooks';
 import { clamp, rand, rollReward, type RewardTier } from '@/lib/reward';
 import { usePlayground } from '@/lib/store';
@@ -219,6 +220,19 @@ export default function DeepScene({
     canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('pointerleave', onLeave);
 
+    // Landing on a sleeper is the whole point of this scene, so that touch is
+    // claimed immediately; anywhere else, the page keeps its flick.
+    const releaseTouch = arbitrateTouch(canvas, {
+      shouldGrab: (clientX, clientY) => {
+        const r = canvas.getBoundingClientRect();
+        const x = clientX - r.left;
+        const y = clientY - r.top;
+        return sleepers.some(
+          (s) => s.cooled <= 0 && Math.hypot(s.x - x, s.y - y) < s.r * 1.15,
+        );
+      },
+    });
+
     /* ---------- loop ---------- */
     let raf = 0;
     let t = 0;
@@ -356,6 +370,7 @@ export default function DeepScene({
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
+      releaseTouch();
       canvas.removeEventListener('pointerleave', onLeave);
     };
   }, [reduced]);

@@ -233,34 +233,19 @@ function Section({
   return (
     <section
       data-section={index}
-      className="section"
-      style={{
-        minHeight: last ? '130svh' : '115svh',
-        display: 'flex',
-        alignItems: 'center',
-      }}
+      /* Layout lives in CSS, not here: the phone breakpoint has to be able to
+         override the vertical centring, and an inline style cannot be. */
+      className={last ? 'section section--last' : 'section'}
       aria-label={eyebrow}
     >
       <div className="section__canvas">{scene}</div>
 
       <div className="section__copy" data-parallax="copy">
         <p className="eyebrow">{eyebrow}</p>
-        <h2
-          data-magnetic
-          style={{
-            fontSize: 'clamp(1.9rem, 5.2vw, 3.4rem)',
-            lineHeight: 1.06,
-            textShadow: '0 2px 30px rgba(0,0,0,0.55)',
-          }}
-        >
+        <h2 className="headline" data-magnetic>
           {title}
         </h2>
-        <p
-          className="lede"
-          style={{ textShadow: '0 1px 18px rgba(0,0,0,0.7)' }}
-        >
-          {lede}
-        </p>
+        <p className="lede">{lede}</p>
 
         {index === 0 && (
           <p

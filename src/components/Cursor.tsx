@@ -58,6 +58,32 @@ export function Cursor() {
     let raf = 0;
     let last = performance.now();
 
+    /**
+     * Find the magnet under the pointer.
+     *
+     * `elementFromPoint` is the cheap path and handles the HUD buttons, but it
+     * only ever returns something that takes pointer events — and the section
+     * copy deliberately takes none, so that it can never intercept a gesture
+     * meant for the playfield behind it. Headlines are therefore invisible to
+     * it and need a plain geometric test. There is a handful of magnets in the
+     * document, so the fallback is cheaper than it looks.
+     */
+    const magnetAt = (x: number, y: number): HTMLElement | null => {
+      const el = document.elementFromPoint(x, y);
+      const direct = el?.closest('[data-magnetic]') as HTMLElement | null;
+      if (direct) return direct;
+
+      const candidates =
+        document.querySelectorAll<HTMLElement>('[data-magnetic]');
+      for (const cand of candidates) {
+        const r = cand.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          return cand;
+        }
+      }
+      return null;
+    };
+
     const onMove = (e: PointerEvent) => {
       target.x = e.clientX;
       target.y = e.clientY;
@@ -70,11 +96,7 @@ export function Cursor() {
         ringPos.y = e.clientY;
       }
 
-      // Cheapest reliable hit test for the magnet target.
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      magnet = el
-        ? (el.closest('[data-magnetic]') as HTMLElement | null)
-        : null;
+      magnet = magnetAt(e.clientX, e.clientY);
       targetScale = magnet ? 1.85 : 1;
     };
 

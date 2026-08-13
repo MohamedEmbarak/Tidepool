@@ -6,6 +6,7 @@ import {
   useGyroscope,
   usePrefersReducedMotion,
 } from '@/lib/hooks';
+import { arbitrateTouch } from '@/lib/gesture';
 import { rand, rollReward } from '@/lib/reward';
 import { usePlayground } from '@/lib/store';
 
@@ -165,6 +166,10 @@ export default function KelpScene({
     canvas.addEventListener('pointercancel', onUp);
     canvas.addEventListener('pointerleave', onUp);
 
+    // There is nothing discrete to land on here — the whole field responds —
+    // so a sweep through the fronds is claimed by hold or by direction alone.
+    const releaseTouch = arbitrateTouch(canvas);
+
     /* ---------- simulate ---------- */
     let raf = 0;
     let t = 0;
@@ -323,6 +328,7 @@ export default function KelpScene({
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
+      releaseTouch();
       canvas.removeEventListener('pointerleave', onUp);
     };
   }, [reduced]);

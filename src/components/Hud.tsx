@@ -99,7 +99,7 @@ export function Hud({ depth }: { depth: number }) {
         </span>
       </div>
 
-      {/* ---- tools, top right ---- */}
+      {/* ---- tools: top right on desktop, thumb corner on phones ---- */}
       <div className="hud hud--tools">
         <button
           type="button"
@@ -146,20 +146,7 @@ export function Hud({ depth }: { depth: number }) {
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             exit={{ opacity: 0, y: -10, filter: 'blur(6px)' }}
             transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-            style={{
-              position: 'fixed',
-              top: 'calc(clamp(0.75rem, 2vw, 1.5rem) + 3.4rem)',
-              right: 'clamp(0.75rem, 2vw, 1.5rem)',
-              zIndex: 60,
-              padding: '0.6rem 0.9rem',
-              borderRadius: 12,
-              background: 'var(--hud-bg)',
-              backdropFilter: 'blur(12px)',
-              border: '1px solid var(--glow-rare)',
-              fontSize: '0.78rem',
-              letterSpacing: '0.04em',
-              pointerEvents: 'none',
-            }}
+            className="hud-pop hud-pop--toast"
           >
             <span style={{ color: 'var(--glow-rare)' }}>found</span>{' '}
             {latest.name}
@@ -175,20 +162,7 @@ export function Hud({ depth }: { depth: number }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.97 }}
             transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
-            style={{
-              position: 'fixed',
-              top: 'calc(clamp(0.75rem, 2vw, 1.5rem) + 3.4rem)',
-              right: 'clamp(0.75rem, 2vw, 1.5rem)',
-              zIndex: 61,
-              width: 'min(19rem, calc(100vw - 2rem))',
-              maxHeight: '60vh',
-              overflowY: 'auto',
-              padding: '1rem',
-              borderRadius: 16,
-              background: 'rgba(6,12,24,0.9)',
-              backdropFilter: 'blur(18px)',
-              border: '1px solid var(--hud-border)',
-            }}
+            className="hud-pop hud-pop--jar"
           >
             <p className="eyebrow" style={{ margin: '0 0 0.75rem' }}>
               Your jar

@@ -10,6 +10,7 @@ import {
 } from '@react-three/rapier';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { arbitrateTouch } from '@/lib/gesture';
 import { usePrefersReducedMotion } from '@/lib/hooks';
 import { clamp, pick, rand, rollReward } from '@/lib/reward';
 import { usePlayground } from '@/lib/store';
@@ -220,6 +221,32 @@ function Float({
 }
 
 /**
+ * Touch handling for the one canvas this project does not create itself.
+ *
+ * R3F leaves its canvas at `touch-action: auto`, which hands the browser every
+ * direction and means a finger dragged across the floats only ever scrolls the
+ * page. `pan-y` narrows that to the one gesture the page is entitled to, and
+ * the arbiter then claims the rest — matching the three 2D scenes exactly.
+ */
+function TouchGuard() {
+  const gl = useThree((s) => s.gl);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const previous = canvas.style.touchAction;
+    canvas.style.touchAction = 'pan-y';
+
+    const release = arbitrateTouch(canvas);
+    return () => {
+      release();
+      canvas.style.touchAction = previous;
+    };
+  }, [gl]);
+
+  return null;
+}
+
+/**
  * A canvas whose context has been lost paints as opaque white and covers the
  * whole section, which is a far worse failure than simply having no 3D. This
  * catches the loss, lets the browser attempt a restore, and reports upward so
@@ -343,6 +370,7 @@ function Tank({
   return (
     <>
       <ContextGuard onChange={onContextChange} />
+      <TouchGuard />
       <ambientLight intensity={0.85} />
       <directionalLight position={[3, 6, 5]} intensity={1.15} />
       <pointLight position={[-4, -2, 3]} intensity={22} color="#8ffff0" />

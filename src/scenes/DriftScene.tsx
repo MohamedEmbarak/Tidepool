@@ -2,6 +2,7 @@
 
 import Matter from 'matter-js';
 import { useEffect, useRef } from 'react';
+import { arbitrateTouch } from '@/lib/gesture';
 import { usePrefersReducedMotion } from '@/lib/hooks';
 import { clamp, pick, rand, rollReward, type RewardTier } from '@/lib/reward';
 import { usePlayground } from '@/lib/store';
@@ -255,6 +256,15 @@ export default function DriftScene({
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
 
+    // A finger that lands on a jelly is pulling it, not scrolling past it, so
+    // the scene claims that touch outright and never has to wait out a press.
+    const releaseTouch = arbitrateTouch(canvas, {
+      shouldGrab: (clientX, clientY) => {
+        const r = canvas.getBoundingClientRect();
+        return !!nearest(clientX - r.left, clientY - r.top);
+      },
+    });
+
     /* ---------- resize ---------- */
     const resize = () => {
       w = host.clientWidth;
@@ -388,6 +398,7 @@ export default function DriftScene({
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
       canvas.removeEventListener('pointercancel', onUp);
+      releaseTouch();
       Matter.World.clear(world, false);
       Matter.Engine.clear(engine);
     };
