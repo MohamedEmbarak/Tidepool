@@ -34,6 +34,12 @@ class TidepoolAudio {
   async enable(): Promise<void> {
     if (this.ctx) {
       await this.ctx.resume();
+      if (this.master) {
+        const now = this.ctx.currentTime;
+        this.master.gain.cancelScheduledValues(now);
+        this.master.gain.setValueAtTime(Math.max(0.0001, this.master.gain.value), now);
+        this.master.gain.exponentialRampToValueAtTime(0.5, now + 0.25);
+      }
       this.enabled = true;
       return;
     }

@@ -2,28 +2,21 @@
   "name": "tidepool",
   "version": "1.0.0",
   "private": true,
-  "description": "TIDEPOOL — an interactive descent. A tactile, bioluminescent playground built on grounded principles of delight, play, and emotional regulation.",
+  "description": "Tidepool: a continuous underwater expedition with physical discoveries and a persistent field journal.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.cjs"
   },
   "dependencies": {
-    "@react-three/drei": "^10.0.6",
-    "@react-three/fiber": "^9.1.2",
-    "@react-three/rapier": "^2.1.0",
-    "framer-motion": "^12.6.3",
-    "gsap": "^3.12.7",
-    "matter-js": "^0.20.0",
     "next": "^15.2.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "three": "^0.175.0"
   },
   "devDependencies": {
-    "@types/matter-js": "^0.19.8",
     "@types/node": "^22.14.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.1",

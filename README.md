@@ -1,82 +1,48 @@
 # Tidepool
 
-An interactive descent through water — a playground built to be scrolled,
-poked, dragged, and fidgeted with, on a phone or a desktop.
+A single-canvas underwater expedition. Wheel, swipe, keyboard, and the depth controls move a camera through one persistent Three.js world. The document never scrolls and habitats never remount.
 
-Four depths, four tactile grammars: **push** buoyant floats, **squeeze**
-soft-body jellies, **brush** a kelp forest apart, and **search** the dark for
-things that only show themselves when you get close.
+## Explore
 
-> Design rationale, the section-by-section wireframe, and the mapping from each
-> interface decision to the psychology behind it live in **[DESIGN.md](./DESIGN.md)**.
+- Scroll or swipe upward to descend; reverse to ascend. Arrow keys, Page Up/Down, Home/End, the slider, and location buttons also navigate.
+- Touch physical objects to discover them. Open the clam before taking its pearl, part the fronds around the key, and investigate the wreck and ruins.
+- Drag jellyfish and watch them drift home.
+- Six unique objects have their own models, locations, clues, and stories. The final fragment requires the other five and awakens the starwhale.
+- Open the field journal for saved discoveries and clues. Finds persist in localStorage on the current browser/device. Storage failure does not prevent exploration.
+- Tab to nearby discoveries for keyboard interaction; Escape closes the journal. Sound is off initially; reduced-motion preferences disable ambient movement and camera easing.
 
-## Run it
+## Develop
 
-Requires **Node 20+** (Next.js 15).
+Requires Node 22 or newer.
 
-```bash
-npm install
-npm run dev                  # http://localhost:3000
-npm run build && npm start   # production
-npm run typecheck            # tsc --noEmit
+```sh
+npm ci
+npm run dev
+npm test
+npm run typecheck
+npm run build
+npm start
 ```
 
-If you run more than one Node version manager, confirm `node -v` reports 20 or
-newer before reporting a build problem — Next.js 15 rejects anything older.
+Stop the development server before building; both use `.next`.
 
-### Static export
+## Architecture
 
-The app has no server surface, so it exports to plain static files:
+- `src/components/Expedition.tsx`: accessible overlay, field journal, persistence, sound, engine lifecycle.
+- `src/world/engine.ts`: one renderer, scene, camera, animation loop, raycasting and input.
+- `src/world/models.ts`: procedural relics, habitat geometry, plants, creatures, and shared materials.
+- `src/world/catalog.ts`: discovery definitions, collection prerequisites, save validation, bounded camera motion.
+- `src/lib/audio.ts`: browser-generated discovery sounds.
 
-```bash
-GITHUB_PAGES=true npm run build   # emits ./out
+No physics engines, external models, textures, fonts, or audio downloads are needed. Geometry is built once. Off-camera objects are culled; canvas DPR is capped at 1.5 and frames at 60 Hz. Opening the journal or hiding the tab suspends the render loop. React receives only changed navigation/discovery state, at most ten times a second. Teardown removes events and disposes GPU resources.
+
+## GitHub Pages
+
+Pushes to `main` run `.github/workflows/deploy.yml` (the workflow name is **Deploy to GitHub Pages**). The build uses `GITHUB_PAGES=true` to export `out/` with the `/Tidepool` base path. To reproduce in PowerShell:
+
+```powershell
+$env:GITHUB_PAGES='true'
+npm run build
 ```
 
-This is what the Pages workflow runs. The env var also applies the
-`/Tidepool` base path required by a GitHub project site.
-
-## What's where
-
-```
-src/
-  app/
-    layout.tsx        root layout, metadata, viewport
-    page.tsx          the descent — GSAP ScrollTrigger, section shell
-    globals.css       design system; --depth drives the ambient gradient
-  components/
-    Cursor.tsx        split cursor: exact dot + spring ring, magnetic snap
-    Hud.tsx           depth gauge, sound toggle, find jar
-  lib/
-    reward.ts         variable-ratio schedule + pity counter, math helpers
-    audio.ts          Web Audio pentatonic synth, muted by default
-    store.tsx         playground context: finds + sound
-    hooks.ts          reduced-motion, fine-pointer, in-view, gyroscope
-  scenes/
-    SurfaceScene.tsx  R3F + Rapier — buoyant floats, self-restoring field
-    DriftScene.tsx    Matter.js — soft-body jellies, multi-touch fling
-    KelpScene.tsx     Verlet strands — part on contact, gyroscope tilt
-    DeepScene.tsx     particles — motes, bursts, reveal-on-approach sleepers
-```
-
-## Stack
-
-Next.js 15 · React 19 · TypeScript · React Three Fiber v9 + @react-three/rapier
-· Matter.js · GSAP ScrollTrigger · Framer Motion · Web Audio API.
-
-No network calls, no storage, no accounts, no analytics.
-
-## Notes
-
-- **Sound is muted by default** — toggle it top-right. Pentatonic only, so no
-  combination of taps can sound wrong.
-- **`prefers-reduced-motion` is fully honoured**: physics loops idle and the
-  custom cursor does not mount.
-- **`reactStrictMode` is deliberately off** — R3F v9 loses its WebGL context
-  under React 19's dev-only double-mount. Reasoning is in `next.config.mjs`.
-- **Frame rate has not been benchmarked on real hardware.** The rendering and
-  scheduling work described in `DESIGN.md` is done, but no trustworthy FPS
-  measurement has been taken yet. Worth a pass on a mid-range Android device.
-
-## Licence
-
-[MIT](./LICENSE)
+The collection tests cover locked containers, the final prerequisite, duplicate prevention, malformed saves, and repeated camera reversals. Browser verification covers physical raycasts, touch swipes, save restoration, journal keyboard handling, and one-canvas/no-document-scroll invariants.

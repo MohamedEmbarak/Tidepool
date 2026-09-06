@@ -1,480 +1,120 @@
-/* TIDEPOOL — global design system.
-   Depth is the organising metaphor: --depth runs 0 (surface) → 1 (abyss)
-   and is written by GSAP ScrollTrigger in page.tsx. Every ambient colour
-   interpolates off it, so the descent recolours the whole document
-   continuously rather than snapping between sections. */
-
-:root {
-  --depth: 0;
-
-  /* Anchor palette. Scene tints are mixed from these against --depth. */
-  --surface-1: #7fe3d4;
-  --surface-2: #3aa7c9;
-  --drift-1: #6f7fe0;
-  --drift-2: #3b3f8f;
-  --kelp-1: #2c7a6b;
-  --kelp-2: #16323f;
-  --abyss-1: #05070f;
-  --abyss-2: #0b1024;
-
-  /* Bioluminescence — the reward colour. Only ever used for things the
-     user caused to happen, so the eye learns it means "you did that". */
-  --glow: #8ffff0;
-  --glow-warm: #ffd6a0;
-  --glow-rare: #ff9ce8;
-
-  --ink: #eaf6ff;
-  --ink-dim: rgba(234, 246, 255, 0.62);
-  --ink-faint: rgba(234, 246, 255, 0.3);
-
-  --hud-bg: rgba(8, 16, 30, 0.55);
-  --hud-border: rgba(143, 255, 240, 0.22);
-
-  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-squish: cubic-bezier(0.34, 1.56, 0.64, 1);
-
-  --font-display: ui-serif, 'Iowan Old Style', 'Palatino Linotype', Palatino,
-    Georgia, serif;
-  --font-ui: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
-    sans-serif;
+:root { color-scheme: dark; --ink:#e2eee7; --muted:#9db9b6; --line:#c0ddd52b; --mint:#b4d9c7; --dark:#0b212b; --serif:Georgia,'Times New Roman',serif; --ui:system-ui,-apple-system,'Segoe UI',sans-serif; }
+* { box-sizing:border-box; }
+html,body { margin:0; width:100%; height:100%; overflow:hidden; overscroll-behavior:none; background:#092b35; }
+body { font-family:var(--ui); color:var(--ink); }
+button,input,a { -webkit-tap-highlight-color:transparent; }
+button,a { touch-action:manipulation; }
+button { font:inherit; color:inherit; cursor:pointer; border:1px solid var(--line); background:transparent; }
+button:disabled { opacity:.25; cursor:default; }
+button,a,input { outline-offset:6px; }
+:focus-visible { outline:2px solid #cfedc9; }
+button:hover:not(:disabled) { border-color:#d4e7d16b; background-color:#d1ebdf0b; }
+a { color:inherit; }
+.expedition { position:fixed; inset:0; width:100%; height:100%; height:100dvh; isolation:isolate; }
+.ocean-canvas { display:block; width:100%; height:100%; touch-action:pinch-zoom; cursor:grab; }
+.ocean-canvas:active { cursor:grabbing; }
+.expedition-header { position:absolute; top:max(32px,env(safe-area-inset-top)); left:max(40px,env(safe-area-inset-left)); right:max(40px,env(safe-area-inset-right)); display:flex; align-items:center; justify-content:space-between; pointer-events:none; z-index:3; }
+.expedition-header a,.expedition-header button { pointer-events:auto; }
+.wordmark { display:flex; align-items:center; gap:12px; text-decoration:none; font-family:var(--serif); font-size:32px; line-height:1; letter-spacing:-.8px; }
+.wordmark svg { width:38px; height:38px; stroke:var(--mint); stroke-width:1; }
+.brand-subtitle { display:block; font:9px var(--ui); letter-spacing:2px; text-transform:uppercase; margin-top:9px; color:var(--muted); }
+.expedition-tools { display:flex; align-items:center; gap:12px; }
+.expedition-tools button { height:46px; background:#122e3770; backdrop-filter:blur(12px); }
+.expedition-tools svg { width:19px; height:20px; stroke:currentColor; stroke-width:1.3; }
+.sound-button { width:46px; border-radius:50%; display:grid; place-items:center; }
+.journal-button { border-radius:30px; display:flex; align-items:center; gap:13px; padding:0 18px; font-size:12px; }
+.journal-count { font-size:11px; letter-spacing:.8px; padding-left:13px; border-left:1px solid var(--line); }
+.journal-count span { color:var(--muted); }
+.habitat-caption { position:absolute; top:160px; left:44px; width:min(300px,28vw); pointer-events:none; animation:caption-in .65s ease both; }
+.eyebrow { text-transform:uppercase; font-size:9px; letter-spacing:1.9px; line-height:1.8; font-weight:500; color:var(--muted); margin:0 0 20px; }
+.status-dot { display:inline-block; width:5px; height:5px; border-radius:50%; background:#c6e0bd; margin-right:10px; vertical-align:2px; }
+h1,h2,h3,p { margin-top:0; }
+h1,h2,h3 { font-family:var(--serif); font-weight:400; }
+.habitat-caption h1 { font-size:clamp(30px,3.6vw,48px); line-height:1.13; letter-spacing:-1.1px; margin-bottom:18px; text-wrap:balance; }
+.habitat-description { font-size:12px; line-height:1.9; max-width:250px; color:var(--muted); }
+.depth-nav { position:absolute; right:43px; top:42%; display:flex; flex-direction:column; gap:30px; z-index:2; }
+.depth-nav button { position:relative; z-index:1; border:0; display:flex; align-items:center; justify-content:flex-end; gap:18px; padding:4px 0 4px 12px; font-size:10px; letter-spacing:1.6px; text-transform:uppercase; color:#9fb8b5; background:transparent!important; }
+.depth-nav i { display:block; height:7px; width:7px; background:#17404a; border:1px solid #8dafae; border-radius:50%; }
+.depth-nav .active { color:#e3eddb; }
+.depth-nav .active i { background:#deebc8; box-shadow:0 0 12px #cfedc975; }
+.nav-line { position:absolute; width:1px; right:3px; top:10px; bottom:10px; background:var(--line); }
+.nav-line span { display:block; width:1px; background:#b2d1bf; }
+.dive-console { position:absolute; bottom:max(30px,env(safe-area-inset-bottom)); left:44px; right:44px; display:flex; align-items:flex-end; justify-content:space-between; gap:40px; pointer-events:none; }
+.depth-readout .eyebrow { margin-bottom:7px; font-size:8px; }
+.depth-readout>div { font-variant-numeric:tabular-nums; font-size:30px; letter-spacing:-1px; font-weight:400; }
+.depth-readout small { font-size:12px; margin-left:7px; color:var(--muted); }
+.dive-input { width:min(300px,30vw); text-align:center; }
+.dive-input input { pointer-events:auto; width:100%; height:22px; margin:0; accent-color:#c2d8c4; cursor:ns-resize; }
+.dive-input p { margin:8px 0 0; font-size:10px; letter-spacing:.3px; color:var(--muted); }
+.instruction-divider { margin:0 10px; }
+.touch-instruction { display:none; }
+.depth-buttons { display:flex; gap:8px; }
+.depth-buttons button { pointer-events:auto; border-radius:50%; width:44px; height:44px; font-size:19px; background:#122e3755; }
+.object-label { pointer-events:none; position:absolute; left:50%; top:74%; transform:translateX(-50%); font-size:12px; letter-spacing:.4px; padding:12px 20px; border:1px solid var(--line); border-radius:24px; background:#0a243ad9; white-space:nowrap; }
+.object-label span { color:#edc99c; margin-right:6px; }
+.find-notice { position:absolute; left:50%; bottom:125px; transform:translate(-50%,12px); opacity:0; pointer-events:none; transition:opacity .35s,transform .35s; border:1px solid #d1dec234; background:#10232bea; border-radius:12px; padding:12px 18px; display:flex; gap:14px; align-items:center; width:max-content; max-width:min(600px,90vw); font-size:12px; line-height:1.6; box-shadow:0 8px 60px #020d203b; z-index:5; }
+.find-notice.visible { opacity:1; transform:translate(-50%,0); }
+.find-notice .relic-icon { width:50px; height:50px; flex-shrink:0; color:#efdeb4; }
+.find-notice button { border:0; padding:8px 0 8px 8px; font-size:10px; white-space:nowrap; }
+.find-notice.visible button { pointer-events:auto; }
+.focus-discoveries button { position:fixed; left:50%; bottom:150px; transform:translateX(-50%); opacity:0; pointer-events:none; z-index:-1; padding:14px 22px; border-radius:20px; background:var(--dark); }
+.focus-discoveries button:focus-visible { opacity:1; pointer-events:auto; z-index:10; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.field-journal { position:fixed; left:auto; right:18px; top:18px; bottom:18px; margin:0; width:450px; max-width:calc(100vw - 36px); max-height:calc(100dvh - 36px); border:1px solid #acc8c330; border-radius:18px; padding:30px; background:#11252ef5; color:var(--ink); box-shadow:-20px 0 100px #00121e66; overflow-y:auto; scrollbar-width:thin; }
+.field-journal::backdrop { background:#00121c60; backdrop-filter:blur(5px); }
+.journal-heading { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+.journal-heading .eyebrow { margin-bottom:4px; font-size:8px; }
+.journal-heading h2 { font-size:35px; margin:0; letter-spacing:-1px; }
+.close-journal { width:38px; height:38px; font-size:24px; border-radius:50%; }
+.journal-intro { color:var(--muted); font-size:12px; line-height:1.8; margin:22px 0 28px; }
+.journal-progress { display:flex; justify-content:space-between; border-bottom:1px solid var(--line); padding-bottom:12px; font-size:9px; letter-spacing:.3px; }
+.journal-progress span:last-child { color:var(--muted); font-style:italic; }
+.relic-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:20px 0; }
+.relic-slot { position:relative; display:flex; align-items:center; flex-direction:column; padding:14px 8px; border-radius:8px; min-width:0; }
+.relic-slot .slot-number { position:absolute; top:11px; left:12px; font-size:8px; letter-spacing:1px; color:var(--muted); }
+.relic-slot .relic-icon { width:75px; height:75px; opacity:.2; color:var(--muted); transition:opacity .4s; }
+.relic-slot.collected .relic-icon { color:var(--relic-color); opacity:1; }
+.relic-slot>span:not(.slot-number) { font-size:10px; margin-top:4px; }
+.relic-slot small { font-size:8px; margin-top:7px; color:var(--muted); }
+.relic-slot.selected { border-color:#c8ded183; background:#c8ded108; }
+.journal-detail { min-height:145px; border-top:1px solid var(--line); padding-top:22px; }
+.journal-detail .eyebrow { font-size:8px; color:var(--relic-color,var(--muted)); margin-bottom:8px; }
+.journal-detail h3 { font-size:24px; margin-bottom:12px; }
+.journal-detail p:not(.eyebrow) { font-size:12px; color:var(--muted); line-height:1.85; }
+.journal-detail button { border:0; border-bottom:1px solid var(--line); font-size:10px; padding:8px 0; }
+.journal-detail button span { margin-left:20px; }
+.save-note { color:#77938f; font-size:9px; margin:26px 0 0; }
+.journal-complete { color:#c9d4ff; font-family:var(--serif); font-size:20px; margin-top:20px; line-height:1.4; }
+.loading-world,.world-error { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#102c37; z-index:20; text-align:center; }
+.loading-world p { font:italic 25px var(--serif); color:var(--muted); margin-top:25px; }
+.loading-orbit { border:1px solid #a2c5b940; border-top-color:#b7d3c2; width:48px; height:48px; border-radius:50%; animation:turn 2s linear infinite; }
+.world-error { padding:30px; }
+.world-error h1 { font-size:40px; }
+.world-error p { max-width:350px; font-size:13px; line-height:1.8; }
+.world-error button { padding:12px 25px; border-radius:30px; }
+@keyframes turn { to { transform:rotate(360deg); } }
+@keyframes caption-in { from { opacity:0; } to { opacity:1; } }
+@media (max-width:700px) {
+  .expedition-header { top:max(20px,env(safe-area-inset-top)); left:max(20px,env(safe-area-inset-left)); right:max(20px,env(safe-area-inset-right)); }
+  .wordmark { font-size:27px; gap:9px; } .wordmark svg { width:31px; height:31px; }
+  .brand-subtitle { font-size:7px; letter-spacing:1.3px; margin-top:6px; }
+  .journal-label { display:none; } .journal-button { padding:0 12px; gap:9px; }
+  .journal-count { padding-left:0; border:0; font-size:10px; } .journal-count span { display:none; }
+  .expedition-tools { gap:7px; } .expedition-tools button { height:44px; } .sound-button { width:44px; }
+  .habitat-caption { top:max(108px,calc(env(safe-area-inset-top) + 82px)); left:23px; width:min(270px,75vw); }
+  .habitat-caption h1 { font-size:29px; max-width:255px; }
+  .habitat-caption .eyebrow { font-size:8px; letter-spacing:1.3px; margin-bottom:12px; }
+  .habitat-description { font-size:11px; max-width:220px; line-height:1.7; }
+  .depth-nav { right:20px; top:41%; gap:22px; } .depth-nav button { min-width:44px; min-height:30px; }
+  .depth-nav button span { display:none; } .nav-line { top:14px; bottom:14px; }
+  .dive-console { left:23px; right:20px; bottom:max(24px,calc(env(safe-area-inset-bottom) + 10px)); gap:15px; flex-wrap:wrap; }
+  .depth-readout .eyebrow { font-size:7px; letter-spacing:1.2px; } .depth-readout>div { font-size:26px; }
+  .dive-input { position:absolute; bottom:74px; width:100%; } .dive-input p { font-size:9px; } .dive-input input { height:20px; }
+  .depth-buttons { margin-left:auto; }
+  .find-notice { bottom:174px; padding:10px 14px; font-size:11px; gap:7px; } .find-notice .relic-icon { width:35px; height:35px; } .find-notice button { font-size:9px; }
+  .object-label { top:auto; bottom:177px; font-size:10px; padding:10px 16px; }
+  .field-journal { right:10px; top:max(10px,env(safe-area-inset-top)); bottom:max(10px,env(safe-area-inset-bottom)); width:calc(100vw - 20px); max-width:none; max-height:calc(100dvh - 20px); padding:24px; }
 }
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-}
-
-html {
-  /* Momentum scrolling is the spine of the whole piece — never interrupt it
-     with scroll-snap. Flow state depends on the user never being grabbed. */
-  scroll-behavior: auto;
-  background: var(--abyss-1);
-}
-
-body {
-  font-family: var(--font-ui);
-  color: var(--ink);
-  overflow-x: hidden;
-  min-height: 100%;
-
-  /* The ambient gradient IS the depth readout. It is painted on a fixed
-     layer and only its colour stops move, so scrolling never repaints
-     geometry. */
-  background:
-    radial-gradient(
-      120% 80% at 50% -10%,
-      color-mix(in oklab, var(--surface-1) calc((1 - var(--depth)) * 60%), transparent)
-        0%,
-      transparent 60%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--surface-2) calc((1 - var(--depth)) * 85%), var(--abyss-2))
-        0%,
-      color-mix(in oklab, var(--drift-2) calc(70% - var(--depth) * 50%), var(--abyss-1))
-        45%,
-      var(--abyss-1) 100%
-    );
-  background-attachment: fixed;
-}
-
-/* Desktop gets a bespoke cursor; hiding the native one is only safe where a
-   real pointer exists, so it is gated on a media query rather than JS. */
-@media (pointer: fine) {
-  body[data-cursor='on'],
-  body[data-cursor='on'] * {
-    cursor: none;
-  }
-}
-
-h1,
-h2,
-h3 {
-  font-family: var(--font-display);
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  margin: 0;
-}
-
-/* ---------- Layout primitives ---------- */
-
-.section {
-  position: relative;
-  width: 100%;
-  isolation: isolate;
-  overflow: clip;
-  display: flex;
-  align-items: center;
-  min-height: 115svh;
-}
-
-/* The last section runs longer so the descent has somewhere to bottom out. */
-.section--last {
-  min-height: 130svh;
-}
-
-.section__canvas {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-}
-
-.section__copy {
-  position: relative;
-  z-index: 2;
-  pointer-events: none; /* never steal a drag from the playfield beneath */
-  padding: clamp(1.5rem, 5vw, 5rem);
-  /* Sized in rem, not ch: `ch` resolves against this block's 16px font, not
-     the 3.4rem headline inside it, which would ration the display type to a
-     ~270px column. */
-  max-width: min(38rem, 92vw);
-}
-
-/* Only genuinely interactive descendants opt back in.
-   A paragraph is a full-width rectangle whether or not glyphs reach the end of
-   the line, so giving the copy's children pointer events laid a dead band
-   across the middle of every playfield — taps in it hit an <h2> and never
-   reached the canvas. The copy is scenery; scenery does not take input. */
-.section__copy :is(a, button, input, select, textarea, [data-interactive]) {
-  pointer-events: auto;
-}
-
-/* A soft pool of shade behind the text. The playfield is allowed to drift
-   anywhere, including behind the copy, so contrast cannot be left to chance —
-   this guarantees the legibility floor without walling off part of the toy. */
-.section__copy::before {
-  content: '';
-  position: absolute;
-  inset: -3rem -8rem -3rem -6rem;
-  z-index: -1;
-  pointer-events: none;
-  background: radial-gradient(
-    62% 58% at 28% 50%,
-    rgba(3, 8, 18, 0.62) 0%,
-    rgba(3, 8, 18, 0.34) 45%,
-    transparent 72%
-  );
-}
-
-/* Clear the fixed depth gauge, which occupies roughly the first 100px of the
-   left edge once its tick labels are drawn. */
-@media (min-width: 900px) {
-  .section__copy {
-    padding-left: 8rem;
-  }
-}
-
-.eyebrow {
-  font-size: 0.72rem;
-  letter-spacing: 0.32em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  margin: 0 0 0.9rem;
-}
-
-.headline {
-  font-size: clamp(1.9rem, 5.2vw, 3.4rem);
-  line-height: 1.06;
-  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.55);
-  /* Balanced wrapping matters most at phone widths, where a headline breaks
-     into three lines and a greedy break leaves one orphaned word. */
-  text-wrap: balance;
-}
-
-.lede {
-  font-size: clamp(0.95rem, 1.1vw, 1.05rem);
-  line-height: 1.65;
-  color: var(--ink-dim);
-  margin: 1rem 0 0;
-  text-shadow: 0 1px 18px rgba(0, 0, 0, 0.7);
-  text-wrap: pretty;
-  /* Body copy wants a shorter measure than the headline above it. */
-  max-width: 30rem;
-}
-
-/* ---------- Phones ----------
-
-   The desktop arrangement fails here in two ways. The copy is vertically
-   centred, so it sits exactly where the toys are and the user's thumb naturally
-   goes; and the scrim behind it is a radial aimed at a left-hand column that
-   does not exist at this width, so text lands on pale floats with nothing
-   behind it.
-
-   Both are fixed by treating the copy as a caption band pinned to the top of
-   the section: full-bleed, backed by a top-anchored gradient, leaving the lower
-   two thirds of every screen as uninterrupted playfield. */
-@media (max-width: 700px) {
-  .section {
-    align-items: flex-start;
-  }
-
-  .section__copy {
-    width: 100%;
-    max-width: none;
-    /* The tools sit in the opposite corner at this width, so the band only
-       needs enough headroom to look deliberate. The inline value matches the
-       footer's so the two share a margin. */
-    padding: 2.5rem 1.5rem 0;
-  }
-
-  .section__copy::before {
-    inset: -3rem 0 -2.75rem 0;
-    background: linear-gradient(
-      180deg,
-      rgba(3, 8, 18, 0.74) 0%,
-      rgba(3, 8, 18, 0.58) 55%,
-      transparent 100%
-    );
-  }
-
-  .eyebrow {
-    letter-spacing: 0.24em;
-    margin-bottom: 0.7rem;
-  }
-
-  .lede {
-    /* The measure is already set by the viewport at this width; a rem cap here
-       would just leave a ragged column against the full-bleed scrim. */
-    max-width: none;
-    font-size: 1rem;
-  }
-}
-
-/* Short phones (SE-class, and anything with a browser chrome bar eating the
-   viewport). The caption band above is sized for a 844px-tall screen; left
-   alone it would take two thirds of a 568px one and there would be barely any
-   playfield left to touch. */
-@media (max-width: 700px) and (max-height: 720px) {
-  .section__copy {
-    padding-top: 2rem;
-  }
-
-  .section__copy::before {
-    inset: -2.5rem 0 -2.25rem 0;
-  }
-
-  .headline {
-    font-size: 1.7rem;
-  }
-
-  .lede {
-    font-size: 0.92rem;
-    line-height: 1.55;
-  }
-}
-
-/* Landscape phones: wide enough to miss the rules above, but far too short to
-   centre a block of copy in. */
-@media (max-height: 520px) and (orientation: landscape) {
-  .section {
-    align-items: flex-start;
-  }
-
-  .section__copy {
-    padding-top: 2.5rem;
-    padding-bottom: 0;
-  }
-
-  .headline {
-    font-size: clamp(1.5rem, 3.6vw, 2.2rem);
-  }
-
-  .lede {
-    font-size: 0.9rem;
-    margin-top: 0.7rem;
-  }
-}
-
-/* ---------- HUD ---------- */
-
-.hud {
-  position: fixed;
-  z-index: 60;
-  font-variant-numeric: tabular-nums;
-}
-
-.hud--depth {
-  left: clamp(0.75rem, 2vw, 1.5rem);
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-}
-
-/* Below the desktop breakpoint there is no room for the gauge beside the
-   copy — its tick labels land straight on top of the headline. The section
-   eyebrow ("400 m · Drift") already carries the same information, so the
-   gauge is dropped rather than shrunk into illegibility. */
-@media (max-width: 899px) {
-  .hud--depth {
-    display: none;
-  }
-}
-
-.hud--tools {
-  right: clamp(0.75rem, 2vw, 1.5rem);
-  top: clamp(0.75rem, 2vw, 1.5rem);
-  display: flex;
-  gap: 0.5rem;
-}
-
-.hud-btn {
-  appearance: none;
-  border: 1px solid var(--hud-border);
-  background: var(--hud-bg);
-  backdrop-filter: blur(12px);
-  color: var(--ink);
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 999px;
-  display: grid;
-  place-items: center;
-  transition:
-    transform 0.35s var(--ease-squish),
-    border-color 0.3s ease,
-    background 0.3s ease;
-}
-
-.hud-btn:hover {
-  transform: scale(1.09);
-  border-color: var(--glow);
-}
-
-.hud-btn:active {
-  transform: scale(0.9);
-}
-
-.hud-btn:focus-visible {
-  outline: 2px solid var(--glow);
-  outline-offset: 3px;
-}
-
-/* Panels that hang off the tool buttons: the find toast and the jar. They are
-   positioned here rather than inline so that when the buttons move to the
-   opposite corner on phones, the things attached to them follow. */
-.hud-pop {
-  position: fixed;
-  z-index: 60;
-  top: calc(clamp(0.75rem, 2vw, 1.5rem) + 3.4rem);
-  right: clamp(0.75rem, 2vw, 1.5rem);
-  border: 1px solid var(--hud-border);
-  border-radius: 12px;
-  background: var(--hud-bg);
-  backdrop-filter: blur(12px);
-}
-
-.hud-pop--toast {
-  padding: 0.6rem 0.9rem;
-  border-color: var(--glow-rare);
-  font-size: 0.78rem;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-}
-
-.hud-pop--jar {
-  z-index: 61;
-  width: min(19rem, calc(100vw - 2rem));
-  max-height: 60vh;
-  overflow-y: auto;
-  padding: 1rem;
-  border-radius: 16px;
-  background: rgba(6, 12, 24, 0.9);
-  backdrop-filter: blur(18px);
-}
-
-/* On a phone the top right is the corner a thumb can least reach, and it is
-   also where the caption band starts — so the buttons were both awkward to
-   press and in the way, forcing the copy down the screen to clear them.
-   Dropping them into the bottom corner solves both: they land under the thumb
-   and sit over the playfield's quietest edge, and the copy can start near the
-   top of the section again. env() keeps them off the iOS home indicator. */
-@media (max-width: 700px) {
-  .hud--tools {
-    top: auto;
-    right: calc(0.9rem + env(safe-area-inset-right, 0px));
-    bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px));
-  }
-
-  /* Attached panels open upwards from the buttons instead of downwards. */
-  .hud-pop {
-    top: auto;
-    right: calc(0.9rem + env(safe-area-inset-right, 0px));
-    bottom: calc(0.9rem + env(safe-area-inset-bottom, 0px) + 3.4rem);
-  }
-
-  .hud-pop--jar {
-    max-height: min(60vh, 22rem);
-  }
-}
-
-/* ---------- Custom cursor ---------- */
-
-.cursor-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  pointer-events: none;
-  contain: strict;
-}
-
-.cursor-dot,
-.cursor-ring {
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: 999px;
-  will-change: transform;
-}
-
-.cursor-dot {
-  width: 7px;
-  height: 7px;
-  margin: -3.5px 0 0 -3.5px;
-  background: var(--glow);
-  box-shadow: 0 0 12px var(--glow);
-}
-
-.cursor-ring {
-  width: 38px;
-  height: 38px;
-  margin: -19px 0 0 -19px;
-  border: 1px solid rgba(143, 255, 240, 0.55);
-}
-
-/* ---------- Accessibility ---------- */
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* Reduced motion is honoured in JS too (physics loops idle), but this also
-   kills residual CSS transitions so nothing drifts for a vestibular-
-   sensitive user. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
-  }
-
-  .cursor-layer {
-    display: none;
-  }
-}
+@media (pointer:coarse) { .desktop-instruction { display:none; } .touch-instruction { display:inline; } }
+@media (max-height:600px) { .habitat-description { display:none; } .habitat-caption { top:100px; } .habitat-caption h1 { font-size:27px; } .dive-console { bottom:15px; } .field-journal { padding:20px; } }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; } }

@@ -30,13 +30,7 @@ const nextConfig = {
       }
     : {}),
 
-  // Deliberately off. React 19 StrictMode double-invokes effects in dev;
-  // @react-three/fiber v9 responds by disposing the WebGLRenderer on the
-  // simulated unmount, which calls forceContextLoss() on a canvas it then
-  // reuses. The result is a permanently lost context that paints the whole
-  // section opaque white — in dev only. Production is unaffected either way,
-  // so this buys a working dev server at no cost to the shipped build.
-  reactStrictMode: false,
+  reactStrictMode: true,
 
   // Pin the build trace to this project. Next infers the workspace root from
   // the nearest lockfile, which can resolve to a parent directory and pull
@@ -46,12 +40,7 @@ const nextConfig = {
   // three.js ships untranspiled ESM examples; let Next compile them.
   transpilePackages: ['three'],
 
-  experimental: {
-    // Split the heavy WebGL/physics vendors out of the shared chunk so the
-    // first paint (hero copy + CSS) is not blocked on them. Scenes are also
-    // dynamically imported, so these land in lazily-fetched chunks.
-    optimizePackageImports: ['@react-three/drei', 'framer-motion'],
-  },
+
 };
 
 export default nextConfig;
