@@ -107,6 +107,7 @@ h3 {
   position: relative;
   width: 100%;
   isolation: isolate;
+  overflow: clip;
   display: flex;
   align-items: center;
   min-height: 115svh;

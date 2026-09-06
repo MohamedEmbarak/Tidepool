@@ -6,6 +6,7 @@ import {
   useGyroscope,
   usePrefersReducedMotion,
 } from '@/lib/hooks';
+import { animateVisible } from '@/lib/animation';
 import { arbitrateTouch } from '@/lib/gesture';
 import { rand, rollReward } from '@/lib/reward';
 import { usePlayground } from '@/lib/store';
@@ -117,10 +118,13 @@ export default function KelpScene({
       });
     };
 
+    let sized = false;
     const resize = () => {
+      if (sized && w === host.clientWidth && h === host.clientHeight) return;
+      sized = true;
       w = host.clientWidth;
       h = host.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       canvas.style.width = `${w}px`;
@@ -171,12 +175,10 @@ export default function KelpScene({
     const releaseTouch = arbitrateTouch(canvas);
 
     /* ---------- simulate ---------- */
-    let raf = 0;
     let t = 0;
 
     const frame = () => {
-      raf = requestAnimationFrame(frame);
-      if (pausedRef.current) return;
+      if (pausedRef.current) { pointers.clear(); return; }
 
       t += 1 / 60;
 
@@ -319,10 +321,10 @@ export default function KelpScene({
       }
     };
 
-    raf = requestAnimationFrame(frame);
+    const stopAnimation = animateVisible(host, frame);
 
     return () => {
-      cancelAnimationFrame(raf);
+      stopAnimation();
       ro.disconnect();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);

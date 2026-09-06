@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { animateVisible } from '@/lib/animation';
 import { arbitrateTouch } from '@/lib/gesture';
 import { usePrefersReducedMotion } from '@/lib/hooks';
 import { clamp, rand, rollReward, type RewardTier } from '@/lib/reward';
@@ -126,10 +127,13 @@ export default function DeepScene({
       }));
     };
 
+    let sized = false;
     const resize = () => {
+      if (sized && w === host.clientWidth && h === host.clientHeight) return;
+      sized = true;
       w = host.clientWidth;
       h = host.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       canvas.style.width = `${w}px`;
@@ -234,12 +238,10 @@ export default function DeepScene({
     });
 
     /* ---------- loop ---------- */
-    let raf = 0;
     let t = 0;
 
     const frame = () => {
-      raf = requestAnimationFrame(frame);
-      if (pausedRef.current) return;
+      if (pausedRef.current) { pointers.clear(); return; }
       t += 1 / 60;
 
       ctx.clearRect(0, 0, w, h);
@@ -361,10 +363,10 @@ export default function DeepScene({
       ctx.globalCompositeOperation = 'source-over';
     };
 
-    raf = requestAnimationFrame(frame);
+    const stopAnimation = animateVisible(host, frame);
 
     return () => {
-      cancelAnimationFrame(raf);
+      stopAnimation();
       ro.disconnect();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);

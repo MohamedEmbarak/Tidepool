@@ -2,6 +2,7 @@
 
 import Matter from 'matter-js';
 import { useEffect, useRef } from 'react';
+import { animateVisible } from '@/lib/animation';
 import { arbitrateTouch } from '@/lib/gesture';
 import { usePrefersReducedMotion } from '@/lib/hooks';
 import { clamp, pick, rand, rollReward, type RewardTier } from '@/lib/reward';
@@ -39,6 +40,7 @@ type Jelly = {
   hue: string;
   /** 0..1, drives the glow that fades after a poke. */
   charge: number;
+  home: { x: number; y: number };
 };
 
 type Ripple = {
@@ -86,7 +88,7 @@ export default function DriftScene({
     const count = isMobile ? JELLY_COUNT_MOBILE : JELLY_COUNT_DESKTOP;
 
     const engine = Matter.Engine.create({
-      gravity: { x: 0, y: -0.06, scale: 0.001 }, // slight lift = floating
+      gravity: { x: 0, y: 0, scale: 0.001 },
       positionIterations: 6,
       velocityIterations: 4,
     });
@@ -145,6 +147,7 @@ export default function DriftScene({
         radius,
         hue: pick(['#8ffff0', '#a9b6ff', '#7fe3d4', '#c9a8ff', '#ffd6f2']),
         charge: 0,
+        home: { x: cx / w, y: cy / h },
       };
     };
 
@@ -266,10 +269,13 @@ export default function DriftScene({
     });
 
     /* ---------- resize ---------- */
+    let sized = false;
     const resize = () => {
+      if (sized && w === host.clientWidth && h === host.clientHeight) return;
+      sized = true;
       w = host.clientWidth;
       h = host.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       canvas.style.width = `${w}px`;
@@ -303,15 +309,13 @@ export default function DriftScene({
       ctx.closePath();
     };
 
-    let raf = 0;
     let last = performance.now();
 
     const frame = (now: number) => {
-      raf = requestAnimationFrame(frame);
-      const dt = Math.min(now - last, 40);
+      const dt = Math.min(now - last, 1000 / 60);
       last = now;
 
-      if (pausedRef.current) return;
+      if (pausedRef.current) { drags.clear(); return; }
 
       // Steer dragged nodes toward the finger with a velocity set rather than
       // a teleport, so the rest of the ring gets dragged along by the
@@ -323,6 +327,17 @@ export default function DriftScene({
         d.jelly.charge = Math.min(1, d.jelly.charge + 0.05);
       }
 
+      for (const jelly of jellies) {
+        if ([...drags.values()].some((drag) => drag.jelly === jelly)) continue;
+        const dx = jelly.home.x * w - jelly.hub.position.x;
+        const dy = jelly.home.y * h - jelly.hub.position.y;
+        for (const body of [jelly.hub, ...jelly.ring]) {
+          Matter.Body.applyForce(body, body.position, {
+            x: dx * body.mass * 0.000002,
+            y: dy * body.mass * 0.000002,
+          });
+        }
+      }
       Matter.Engine.update(engine, dt);
 
       ctx.clearRect(0, 0, w, h);
@@ -389,10 +404,10 @@ export default function DriftScene({
       ctx.globalCompositeOperation = 'source-over';
     };
 
-    raf = requestAnimationFrame(frame);
+    const stopAnimation = animateVisible(host, frame);
 
     return () => {
-      cancelAnimationFrame(raf);
+      stopAnimation();
       ro.disconnect();
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
