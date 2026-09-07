@@ -10,3 +10,5 @@ next-env.d.ts
 .DS_Store
 npm-debug.log*
 *.stackdump
+asset-work/
+public/models/ship-small-ghost.glb

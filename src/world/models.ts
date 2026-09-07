@@ -139,28 +139,10 @@ export function jelly(color: string, seed: number) {
   g.add(merged(parts, color)); return g;
 }
 
-export function wreck() {
-  const g = new T.Group(); const parts: T.Mesh[] = [];
-  for (let i = 0; i < 12; i++) { const x = (i - 5.5) * 0.52; const plank = mesh(new T.BoxGeometry(0.43, 0.13, 2.1), '#816b61', [x, x * x * 0.075, 0]); plank.rotation.z = x * 0.1; parts.push(plank); }
-  for (let side = -1; side <= 1; side += 2) for (let i = 0; i < 6; i++) { const rib = mesh(new T.BoxGeometry(0.12, 1.2, 0.12), '#816b61', [(i - 2.5) * 0.95, 0.55, side * 0.85]); rib.rotation.z = (i - 2.5) * -0.13; parts.push(rib); }
-  parts.push(mesh(new T.CylinderGeometry(0.06, 0.1, 3.8, 8), '#816b61', [-0.9, 1.5, 0]));
-  g.add(merged(parts, '#816b61'));
-  const sail = mesh(new T.PlaneGeometry(1.7, 2.1, 1, 1), '#758787', [0, 1.8, -0.2]); sail.rotation.z = -0.15; (sail.material as T.MeshStandardMaterial).side = T.DoubleSide; g.add(sail); g.rotation.set(0.32, -0.18, -0.12); return g;
-}
-
 export function arch() {
   const g = new T.Group();
   for (let i = 0; i < 11; i++) { const a = i / 10 * Math.PI; const stone = mesh(new T.BoxGeometry(0.72, 0.78, 0.7), i % 2 ? '#35506a' : '#405975', [Math.cos(a) * 2.4, Math.sin(a) * 2.4, -1]); stone.rotation.z = a; g.add(stone); }
   for (const x of [-2.4, 2.4]) g.add(mesh(new T.CylinderGeometry(0.32, 0.43, 2.7, 7), '#3b526b', [x, -1.2, -1])); return g;
-}
-
-export function whale() {
-  const g = new T.Group(); const body = mesh(new T.SphereGeometry(1, 40, 24), '#8dbbdc', [0, 0, 0], [3.4, 1.1, 0.95], 0.15);
-  const skin = new T.MeshStandardMaterial({ color: '#749fc5', emissive: '#527aa9', emissiveIntensity: 0.5, transparent: true, opacity: 0.8, roughness: 0.4 }); body.material = skin; g.add(body);
-  for (const side of [-1, 1]) { const fin = mesh(new T.SphereGeometry(1, 18, 12), '#90bcdb', [2.9, side * 0.6, 0], [1.1, 0.25, 0.18], 0.4); fin.rotation.z = side * 0.5; g.add(fin); }
-  const fin = mesh(new T.SphereGeometry(1, 18, 12), '#6494b9', [-0.8, -1, 0.3], [0.4, 1.15, 0.2]); fin.rotation.z = -0.65; g.add(fin, ball('#e8faff', -2.3, 0.15, 0.82, 0.09, 3));
-  for (let i = 0; i < 26; i++) { const x = Math.sin(i * 16.3) * 2.7; const y = Math.cos(i * 7.7) * 0.7; g.add(ball('#bbdfff', x, y, 0.85, 0.025 + i % 3 * 0.009, 2)); }
-  return g;
 }
 
 export function makeRelics() {

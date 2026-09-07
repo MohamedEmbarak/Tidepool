@@ -32,6 +32,9 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Test interactions, models, and music
+        run: npm test
+
       - name: Build static export
         # GITHUB_PAGES flips next.config.mjs into `output: 'export'` and
         # applies the /Tidepool basePath. Without it the build emits a

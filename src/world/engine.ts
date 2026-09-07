@@ -1,19 +1,27 @@
 import * as T from 'three';
 import { approach, canCollect, MAX_DEPTH, RELICS, type RelicId } from './catalog';
-import { arch, clearMaterials, coral, frond, jelly, makeRelics, material, mesh, reef, shellModel, whale, wreck } from './models';
+import { arch, clearMaterials, coral, frond, jelly, makeRelics, mesh, reef, shellModel } from './models';
+import { disposeObject, loadModels, placeModel } from './assets';
+import { DiveGestures, type GestureTarget } from './gestures';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
-export type DiveState = { depth: number; nearby: RelicId[]; opened: RelicId[]; hovered: string | null; complete: boolean };
-export type DiveEngine = { goTo: (depth: number) => void; activate: (id: RelicId) => void; setPaused: (paused: boolean) => void; dispose: () => void };
+export type DiveState = { depth: number; zoom: number; nearby: RelicId[]; opened: RelicId[]; hovered: string | null; complete: boolean };
+export type DiveEngine = { goTo: (depth: number) => void; resetView: () => void; activate: (id: RelicId) => void; setPaused: (paused: boolean) => void; dispose: () => void };
 type Options = { found: RelicId[]; reduced: boolean; onState: (state: DiveState) => void; onCollect: (id: RelicId) => void; onHint: (hint: string) => void; onError: () => void };
 
-export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEngine {
+export async function createDive(canvas: HTMLCanvasElement, options: Options, signal?: AbortSignal): Promise<DiveEngine> {
+  const assets = await loadModels();
+  if (signal?.aborted) { Object.values(assets).forEach(a => disposeObject(a.scene)); throw new DOMException('Cancelled', 'AbortError'); }
   const renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-  renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.3;
+  renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
   const scene = new T.Scene(); scene.fog = new T.FogExp2('#103948', 0.024);
+  const environment = new RoomEnvironment(); const pmrem = new T.PMREMGenerator(renderer);
+  const environmentMap = pmrem.fromScene(environment, 0.04); scene.environment = environmentMap.texture;
+  environment.dispose(); pmrem.dispose();
   const camera = new T.OrthographicCamera(-16, 16, 10, -10, 0.1, 90); camera.position.set(0, 0, 18); scene.add(camera);
-  scene.add(new T.HemisphereLight('#c0fff1', '#384359', 2.8));
-  const sun = new T.DirectionalLight('#fff1d2', 3.8); sun.position.set(-8, 14, 12); scene.add(sun);
+  scene.add(new T.HemisphereLight('#c0fff1', '#384359', 1.6));
+  const sun = new T.DirectionalLight('#fff1d2', 2.4); sun.position.set(-8, 14, 12); scene.add(sun);
   const fill = new T.PointLight('#b1e0ff', 45, 38, 1.5); fill.position.set(3, 2, 8); camera.add(fill);
 
   const background = new T.ShaderMaterial({ depthTest: false, depthWrite: false,
@@ -54,7 +62,8 @@ export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEng
   const shell = shellModel(); add(shell.group, 1.3, -2.4, 1.25);
   add(reef(4, '#31565c'), -4.4, -20.5, -2); add(coral('#b891b3', 2), -4, -20, -1).scale.setScalar(0.7);
 
-  add(wreck(), 1.1, -40.7, -0.4);
+  const ship = placeModel(assets['ship-small'], 7.4, -1.1);
+  add(ship.root, 1.1, -40.4, -1.6); ship.root.rotation.set(0.12, 0, -0.14);
   add(reef(18, '#3f526b'), 2.8, -42.2, -1.4).scale.set(1.5, 1, 1);
   for (let i = 0; i < 12; i++) {
     const j = jelly(['#adb2ef', '#83dacc', '#e4b0d1'][i % 3], i); const y = -25 - i * 2.2;
@@ -80,7 +89,11 @@ export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEng
   add(altar, 0, -118, -0.8); add(reef(4, '#303c58'), 0, -121.7, -2).scale.set(1.5, 0.8, 1);
 
   const relics = makeRelics(); relics.forEach((r) => { world.add(r.group); targets.push(r.hit); });
-  const starwhale = whale(); add(starwhale, 0, -114, 0); starwhale.visible = false;
+  const whaleModel = placeModel(assets.whale, 8.4, -Math.PI / 2 + 0.15);
+  const starwhale = whaleModel.root; add(starwhale, 0, -114, 0); starwhale.visible = false;
+  starwhale.traverse(o => { if (o instanceof T.Mesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
+    if (m instanceof T.MeshStandardMaterial) { m.emissive.set('#699ccb'); m.emissiveIntensity = 0.3; m.roughness = 0.48; }
+  }); });
 
   const particles = new Float32Array(850 * 3);
   for (let i = 0; i < 850; i++) { particles[i * 3] = Math.sin(i * 127.1) * 19; particles[i * 3 + 1] = 10 - (i / 850) * 145; particles[i * 3 + 2] = Math.cos(i * 311.7) * 7 - 4; }
@@ -90,19 +103,26 @@ export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEng
     vertexShader: 'uniform float uTime; uniform float uRatio; varying float vAlpha; void main(){vec3 p=position;p.x+=sin(uTime*.15+p.y)*.16;vAlpha=.25+.4*(.5+.5*sin(p.y*7.+uTime));gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);gl_PointSize=(1.8+mod(abs(p.y),2.))*uRatio;}',
     fragmentShader: 'varying float vAlpha; void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;gl_FragColor=vec4(.65,.91,1.,vAlpha*(1.-d*2.));}' })); world.add(plankton);
 
-  const fishGeo = new T.ConeGeometry(0.08, 0.5, 4); fishGeo.rotateZ(Math.PI / 2);
-  const school = new T.InstancedMesh(fishGeo, material('#9cd5c4', 0.1), 72); school.frustumCulled = false; world.add(school);
-  const dummy = new T.Object3D();
+  const swimmers = Array.from({ length: 16 }, (_, i) => {
+    const manta = i === 0 || i === 9;
+    const name = manta ? 'manta-ray' : (['fish1', 'fish2', 'fish3'] as const)[i % 3];
+    const placed = placeModel(assets[name], manta ? 3.4 : 0.9 + i % 3 * 0.32, (i % 2 ? -1 : 1) * Math.PI / 2);
+    const baseY = i < 4 ? [2, -0.8, -1.7, 3.3][i] : -Math.floor(i / 4) * 30 - (i % 4) * 2.8;
+    const baseX = Math.sin(i * 2.4) * 4.8;
+    add(placed.root, baseX, baseY, -2.5 - i % 3); placed.orientation.rotation.x = manta ? 0.3 : 0;
+    return { ...placed, baseX, baseY, phase: i, direction: i % 2 ? -1 : 1 };
+  });
   const found = new Set(options.found); const opened = new Set<RelicId>();
   let current = 0, target = 0, width = 0, height = 0, viewHeight = 20, time = 0, last = 0, reportAt = -1;
-  let raf = 0, paused = false, disposed = false, hovered: string | null = null, activePointer: number | null = null;
-  let startX = 0, startY = 0, previousX = 0, previousY = 0, moved = false, creature: T.Object3D | null = null;
+  let raf = 0, paused = false, disposed = false, hovered: string | null = null;
+  let creature: T.Object3D | null = null, diveVelocity = 0, zoom = 1, panX = 0;
   const ray = new T.Raycaster(); const pointer = new T.Vector2(); const mouse = new T.Vector2();
   const v = new T.Vector3(); const deepFog = new T.Color('#090f28'); let hoverId: RelicId | null = null;
   let lastReport = '';
   const collectTime = new Map<RelicId, number>();
 
-  function goTo(depth: number) { target = Math.min(MAX_DEPTH, Math.max(0, depth)); }
+  function goTo(depth: number) { diveVelocity = 0; target = Math.min(MAX_DEPTH, Math.max(0, depth)); }
+  function resetView() { zoom = 1; panX = 0; diveVelocity = 0; resize(); reportAt = -1; }
   function activate(id: RelicId) {
     const relic = RELICS.find((r) => r.id === id)!;
     if (paused || Math.abs(current - relic.depth) > viewHeight * 0.46 || found.has(id)) return;
@@ -121,45 +141,76 @@ export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEng
     });
   }
   const onWheel = (e: WheelEvent) => { if (paused || e.ctrlKey) return; e.preventDefault(); goTo(target + Math.max(-280, Math.min(280, e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1))) * 0.015); };
+  const gestureTarget = (x: number, y: number): GestureTarget | null => {
+    const hit = hitAt(x, y)?.object;
+    if (hit?.userData.relic) return { kind: 'relic', value: hit.userData.relic };
+    return hit?.userData.creature ? { kind: 'creature', value: hit.userData.creature } : null;
+  };
+  const gestures = new DiveGestures({
+    hit: p => gestureTarget(p.x, p.y),
+    start: () => { diveVelocity = 0; creature = null; hovered = null; hoverId = null; },
+    navigate: (dx, dy, twoFinger) => {
+      goTo(target - dy * viewHeight / height);
+      if (twoFinger) panX = T.MathUtils.clamp(panX - dx * (camera.right - camera.left) / width, -6, 6);
+    },
+    drag: (hit, dx, dy) => {
+      creature = hit.value as T.Object3D;
+      creature.position.x = T.MathUtils.clamp(creature.position.x + dx * (camera.right - camera.left) / width, -12, 12);
+      creature.position.y -= dy * viewHeight / height;
+    },
+    tap: (hit, p) => { if (hit?.kind === 'relic' && gestureTarget(p.x, p.y)?.value === hit.value) activate(hit.value as RelicId); },
+    hold: hit => {
+      const relic = RELICS.find(r => r.id === hit.value);
+      if (relic) { options.onHint(`${relic.name} · ${relic.clue}`); navigator.vibrate?.(12); }
+    },
+    zoom: (ratio, centre) => {
+      const oldWidth = camera.right - camera.left, oldHeight = viewHeight;
+      zoom = T.MathUtils.clamp(zoom * ratio, 0.8, 1.8); resize();
+      const rect = canvas.getBoundingClientRect();
+      panX = T.MathUtils.clamp(panX + ((centre.x - rect.left) / width - 0.5) * (oldWidth - camera.right + camera.left), -6, 6);
+      goTo(target + ((centre.y - rect.top) / height - 0.5) * (oldHeight - viewHeight));
+    },
+    release: velocity => { creature = null; diveVelocity = options.reduced ? 0 : T.MathUtils.clamp(-velocity * viewHeight / height, -40, 40); },
+    reset: resetView,
+  });
+  const cancelGestures = () => {
+    const ids = [...gestures.pointers.keys()]; gestures.cancel();
+    ids.forEach(id => { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); });
+  };
   const onDown = (e: PointerEvent) => {
-    if (paused || activePointer !== null || e.button > 0) return;
-    activePointer = e.pointerId; startX = previousX = e.clientX; startY = previousY = e.clientY; moved = false;
-    creature = hitAt(e.clientX, e.clientY)?.object.userData.creature ?? null;
+    if (paused || e.button > 0) return;
+    gestures.down(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp, e.pointerType === 'touch');
     canvas.setPointerCapture(e.pointerId); canvas.focus({ preventScroll: true });
   };
   const onMove = (e: PointerEvent) => {
     if (paused) return;
+    if (gestures.active) { gestures.move(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp); return; }
+    if (e.pointerType === 'touch') return;
     mouse.set(e.clientX / width * 2 - 1, -(e.clientY / height * 2 - 1));
-    if (activePointer === e.pointerId) {
-      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) moved = true;
-      if (creature) {
-        const rect = canvas.getBoundingClientRect(); creature.position.x += (e.clientX - previousX) * (camera.right - camera.left) / rect.width;
-        creature.position.y -= (e.clientY - previousY) * viewHeight / height;
-      } else if (moved) goTo(target + (previousY - e.clientY) * viewHeight / height);
-      previousY = e.clientY; previousX = e.clientX; return;
-    }
     const hit = hitAt(e.clientX, e.clientY); hoverId = hit?.object.userData.relic ?? null;
     hovered = hoverId ? (hoverId === 'pearl' && !opened.has('pearl') ? 'Open the shell' : hoverId === 'key' && !opened.has('key') ? 'Part the fronds' : RELICS.find((r) => r.id === hoverId)!.name) : hit ? 'Drift with me' : null;
     canvas.style.cursor = hit ? 'pointer' : 'grab';
   };
   const onUp = (e: PointerEvent) => {
-    if (e.pointerId !== activePointer) return;
-    if (!moved && e.type === 'pointerup') { const id = hitAt(e.clientX, e.clientY)?.object.userData.relic as RelicId | undefined; if (id) activate(id); }
-    activePointer = null; creature = null;
+    gestures.up(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp, e.type !== 'pointerup');
     if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   };
   const onLeave = () => { hovered = null; hoverId = null; mouse.set(0, 0); };
   const onKey = (e: KeyboardEvent) => {
     if (paused || e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement || e.target instanceof HTMLDialogElement) return;
+    if (e.key === '0' || e.key === 'Escape') { resetView(); return; }
     const destination: Record<string, number> = { ArrowDown: target + 3, ArrowUp: target - 3, PageDown: target + viewHeight * 0.8, PageUp: target - viewHeight * 0.8, Home: 0, End: MAX_DEPTH, ' ': target + viewHeight * 0.8 };
     if (e.key in destination) { e.preventDefault(); goTo(destination[e.key]); }
   };
   const resize = () => {
+    const resized = width !== canvas.clientWidth || height !== canvas.clientHeight;
     width = canvas.clientWidth; height = canvas.clientHeight;
-    const viewWidth = width < 700 ? 13 : width < 1000 ? 21 : 30;
+    if (!width || !height) return;
+    const viewWidth = (width < 700 ? 13 : width < 1000 ? 21 : 30) / zoom;
     viewHeight = viewWidth * height / width;
     camera.left = -viewWidth / 2; camera.right = viewWidth / 2; camera.top = viewHeight / 2; camera.bottom = -viewHeight / 2; camera.updateProjectionMatrix();
-    backdrop.scale.set(viewWidth, viewHeight, 1); renderer.setSize(width, height, false);
+    backdrop.scale.set(viewWidth, viewHeight, 1);
+    if (resized) renderer.setSize(width, height, false);
   };
   const observer = new ResizeObserver(resize); observer.observe(canvas); resize();
 
@@ -168,9 +219,14 @@ export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEng
     if (last && now - last < 1000 / 60 - 1) { raf = requestAnimationFrame(frame); return; }
     const dt = Math.min((now - (last || now)) / 1000, 0.05); last = now;
     if (!paused) {
-      time += dt; current = approach(current, target, dt, options.reduced || activePointer !== null);
+      if (!gestures.active && Math.abs(diveVelocity) > 0.03) {
+        target = T.MathUtils.clamp(target + diveVelocity * dt, 0, MAX_DEPTH);
+        diveVelocity *= Math.exp(-4.5 * dt);
+        if (target === 0 || target === MAX_DEPTH) diveVelocity = 0;
+      }
+      time += dt; current = approach(current, target, dt, options.reduced || gestures.active);
       camera.position.y = -current;
-      camera.position.x += ((options.reduced ? 0 : mouse.x * 0.18) - camera.position.x) * Math.min(1, dt * 3);
+      camera.position.x += (panX + (options.reduced || gestures.active ? 0 : mouse.x * 0.18) - camera.position.x) * (gestures.active || options.reduced ? 1 : Math.min(1, dt * 8));
       background.uniforms.uTime.value = options.reduced ? 0 : time;
       background.uniforms.uDepth.value = current / MAX_DEPTH;
       (plankton.material as T.ShaderMaterial).uniforms.uTime.value = options.reduced ? 0 : time;
@@ -192,36 +248,42 @@ export function createDive(canvas: HTMLCanvasElement, options: Options): DiveEng
           const desired = hoverId === relic.id ? 1.13 : 1; model.scale.lerp(v.setScalar(desired), Math.min(1, dt * 6));
         }
       });
-      for (let i = 0; i < 72; i++) {
-        const layer = Math.floor(i / 18); const swim = options.reduced ? 0 : time * 0.25;
-        dummy.position.set(((i * 1.13 + swim) % 22) - 11, -layer * 31 - 8 + Math.sin(i * 2.5) * 2.5, -4 - i % 5);
-        dummy.scale.setScalar(0.6 + i % 3 * 0.3); dummy.rotation.z = Math.sin(time + i) * 0.08; dummy.updateMatrix(); school.setMatrixAt(i, dummy.matrix);
+      for (const fish of swimmers) {
+        fish.root.visible = Math.abs(fish.baseY + current) < viewHeight * 0.65 + 3;
+        if (!fish.root.visible || options.reduced) continue;
+        fish.mixer.update(dt);
+        fish.root.position.x = ((fish.baseX + time * 0.45 * fish.direction + 600) % 18) - 9;
+        fish.root.position.y = fish.baseY + Math.sin(time * 0.4 + fish.phase) * 0.35;
+        fish.root.rotation.z = Math.sin(time * 0.5 + fish.phase) * 0.035;
       }
-      school.instanceMatrix.needsUpdate = true;
-      starwhale.visible = found.size === RELICS.length;
-      if (starwhale.visible) { const t = options.reduced ? 0 : time; starwhale.position.set(Math.sin(t * 0.15) * 2, -115 + Math.sin(t * 0.35) * 0.6, 0); starwhale.rotation.z = Math.sin(t * 0.3) * 0.05; }
+      starwhale.visible = found.size === RELICS.length && Math.abs(current - 115) < viewHeight;
+      if (starwhale.visible) {
+        const t = options.reduced ? 0 : time;
+        if (!options.reduced) whaleModel.mixer.update(dt);
+        starwhale.position.set(Math.sin(t * 0.15) * 2, -115 + Math.sin(t * 0.35) * 0.6, 0); starwhale.rotation.z = Math.sin(t * 0.3) * 0.05;
+      }
       altar.rotation.z = options.reduced ? 0 : time * 0.08;
       if (time - reportAt > 0.1) {
         reportAt = time;
-        const state = { depth: Math.round(current * 10) / 10, nearby: RELICS.filter((r) => !found.has(r.id) && Math.abs(r.depth - current) < viewHeight * 0.37).map((r) => r.id), opened: [...opened], hovered, complete: found.size === RELICS.length };
+        const state = { depth: Math.round(current * 10) / 10, zoom: Math.round(zoom * 100) / 100, nearby: RELICS.filter((r) => !found.has(r.id) && Math.abs(r.depth - current) < viewHeight * 0.37).map((r) => r.id), opened: [...opened], hovered, complete: found.size === RELICS.length };
         const key = JSON.stringify(state);
         if (key !== lastReport) { lastReport = key; options.onState(state); }
       }
     }
     renderer.render(scene, camera); raf = requestAnimationFrame(frame);
   }
-  function visibility() { cancelAnimationFrame(raf); last = 0; if (!document.hidden && !disposed && !paused) raf = requestAnimationFrame(frame); }
+  function visibility() { cancelGestures(); cancelAnimationFrame(raf); last = 0; if (!document.hidden && !disposed && !paused) raf = requestAnimationFrame(frame); }
   const contextLost = (event: Event) => { event.preventDefault(); cancelAnimationFrame(raf); options.onError(); };
   canvas.addEventListener('wheel', onWheel, { passive: false }); canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove);
   canvas.addEventListener('pointerup', onUp); canvas.addEventListener('pointercancel', onUp); canvas.addEventListener('lostpointercapture', onUp); canvas.addEventListener('pointerleave', onLeave);
-  canvas.addEventListener('webglcontextlost', contextLost); window.addEventListener('keydown', onKey); document.addEventListener('visibilitychange', visibility);
+  canvas.addEventListener('webglcontextlost', contextLost); window.addEventListener('keydown', onKey); window.addEventListener('blur', cancelGestures); document.addEventListener('visibilitychange', visibility);
   raf = requestAnimationFrame(frame);
-  return { goTo, activate, setPaused(value) { paused = value; activePointer = null; creature = null; visibility(); }, dispose() {
-    disposed = true; cancelAnimationFrame(raf); observer.disconnect();
+  return { goTo, resetView, activate, setPaused(value) { paused = value; visibility(); }, dispose() {
+    disposed = true; cancelGestures(); cancelAnimationFrame(raf); observer.disconnect();
     canvas.removeEventListener('wheel', onWheel); canvas.removeEventListener('pointerdown', onDown); canvas.removeEventListener('pointermove', onMove); canvas.removeEventListener('pointerup', onUp); canvas.removeEventListener('pointercancel', onUp); canvas.removeEventListener('lostpointercapture', onUp); canvas.removeEventListener('pointerleave', onLeave); canvas.removeEventListener('webglcontextlost', contextLost);
-    window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', visibility);
-    const geometries = new Set<T.BufferGeometry>(); const usedMaterials = new Set<T.Material>();
-    scene.traverse((o) => { if (o instanceof T.Mesh || o instanceof T.Points) { geometries.add(o.geometry); (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => usedMaterials.add(m)); } });
-    geometries.forEach((g) => g.dispose()); usedMaterials.forEach((m) => m.dispose()); clearMaterials(); renderer.dispose();
+    window.removeEventListener('keydown', onKey); window.removeEventListener('blur', cancelGestures); document.removeEventListener('visibilitychange', visibility);
+    [...swimmers, whaleModel, ship].forEach(actor => { actor.mixer.stopAllAction(); actor.mixer.uncacheRoot(actor.mixer.getRoot()); });
+    disposeObject(scene); Object.values(assets).forEach(asset => disposeObject(asset.scene));
+    environmentMap.dispose(); clearMaterials(); renderer.dispose();
   } };
 }
