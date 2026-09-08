@@ -18,10 +18,40 @@ test('discoveries reshuffle in both horizontal axes while retaining depth, IDs, 
   const x = new Set(), z = new Set();
   for (let seed = 0; seed < 150; seed++) for (const [i, at] of catalog.discoveryLocations(seed).entries()) {
     assert.equal(at.id, catalog.RELICS[i].id); assert.equal(at.depth, catalog.RELICS[i].depth);
-    assert.ok(Math.hypot(at.x, at.z) < 4.1, 'discovery stays in the clear centre of each habitat');
+    assert.ok(Math.hypot(at.x, at.z) < 4.1, 'discovery stays inside the clear camera orbit');
     assert.ok(at.z > 0); x.add(at.x); z.add(at.z);
   }
   assert.ok(x.size > 800 && z.size > 800);
+});
+
+test('rocks and rooted vegetation occupy one ocean floor with buried bases and a bounded mesh budget', async () => {
+  const T = await import('three'), buffers = await import('three/examples/jsm/utils/BufferGeometryUtils.js');
+  const habitat = load('src/world/habitat.ts', { three: T, './catalog': catalog, 'three/examples/jsm/utils/BufferGeometryUtils.js': buffers });
+  const world = habitat.buildHabitats({ time: { value: 0 }, point: { value: new T.Vector3(999, 999, 999) }, strength: { value: 0 } });
+  world.root.updateMatrixWorld(true);
+  const floor = world.scenery.find(p => p.name.startsWith('Ocean floor')).root;
+  const ray = new T.Raycaster(), geometries = new Set(), materials = new Set();
+  let triangles = 0;
+  for (const prop of world.scenery) {
+    const bounds = new T.Box3().setFromObject(prop.root);
+    assert.ok(bounds.max.y < -catalog.MAX_DEPTH + 10, 'no rock or rooted garden floats at an intermediate depth');
+    assert.ok(Math.abs(prop.home.y + habitat.SEABED_DEPTH) < 0.7);
+    if (prop.kind === 'plant') {
+      assert.ok(prop.anchored, 'touches must bend leaves without lifting their roots');
+      ray.set(new T.Vector3(prop.home.x, -120, prop.home.z), new T.Vector3(0, -1, 0));
+      const surface = ray.intersectObject(floor)[0]; assert.ok(surface);
+      assert.ok(prop.home.y <= surface.point.y && prop.home.y > surface.point.y - 0.1, 'roots meet the rendered terrain');
+    }
+    prop.root.traverse(o => {
+      if (!o.isMesh) return;
+      triangles += (o.geometry.index?.count || o.geometry.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1);
+      geometries.add(o.geometry); materials.add(o.material);
+      for (const value of o.geometry.attributes.position.array) assert.ok(Number.isFinite(value));
+    });
+  }
+  assert.ok(world.scenery.length < 100 && triangles < 400000, 'the detailed seabed stays within its render budget');
+  geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose());
+  world.root.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
 });
 
 test('layout seed validation preserves zero and rejects corrupted or unbounded values', () => {

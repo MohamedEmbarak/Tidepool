@@ -4,7 +4,7 @@ import { arch, clearMaterials, jelly, makeRelics, mesh, shellModel } from './mod
 import { disposeObject, loadModels, placeModel } from './assets';
 import { DiveGestures, type GestureTarget } from './gestures';
 import { DiveCamera } from './camera';
-import { boulder, buildHabitats, seaPlant, type Scenery, type Water } from './habitat';
+import { buildHabitats, seaPlant, type Scenery, type Water } from './habitat';
 import { createSchools, SCHOOL_FISH_COUNT, type SchoolFish } from './schools';
 import { waterEffects } from './effects';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -54,16 +54,12 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
   let lastReport = '';
 
   const shell = shellModel(); const shellProp = habitats.register(shell.group, 'structure', 'An open shell');
-  const pearlStand = habitats.register(boulder(304, [1.7, 1.5, 1.55], habitats.rockMaterial), 'rock', 'Pearl ledge');
-  const bottleStand = habitats.register(boulder(702, [1.4, 1.1, 1.3], habitats.rockMaterial), 'rock', 'A weathered outcrop');
   const ship = placeModel(assets['ship-small'], 7.6, -1.1); ship.root.rotation.set(0.07, 0, -0.14);
   const shipProp = habitats.register(ship.root, 'structure', 'Lost ship · stir the current');
   const keyCover = new T.Group();
   for (let i = 0; i < 3; i++) { const leaf = seaPlant(93 + i, 2.25, habitats.plantMaterial); leaf.position.set((i - 1) * 0.38, 0, i % 2 * 0.18); keyCover.add(leaf); }
-  const keyProp = habitats.register(keyCover, 'plant', 'The hidden garden');
-  const keyStand = habitats.register(boulder(908, [1.8, 2.1, 1.7], habitats.rockMaterial), 'rock', 'Garden roots');
+  const keyProp = habitats.register(keyCover, 'plant', 'Drifting kelp · part the fronds');
   const ruin = habitats.register(arch(), 'structure', 'An ancient arch');
-  const ruinStand = habitats.register(boulder(701, [3.2, 1.4, 2], habitats.rockMaterial), 'rock', 'The archive foundation');
   const altar = new T.Group();
   for (let i = 0; i < 3; i++) { const ring = mesh(new T.TorusGeometry(1.3 + i * 0.4, 0.035, 8, 64), '#7d9cb9', [0, 0, 0], [1, 1, 1], 0.25); ring.rotation.set(i * 0.45, i * 0.55, 0); altar.add(ring); }
   const altarProp = habitats.register(altar, 'structure', 'The memory rings');
@@ -74,12 +70,11 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
   const moveProp = (prop: Scenery, x: number, y: number, z: number) => { prop.home.set(x, y, z); prop.root.position.copy(prop.home); };
   function placeDiscoveries() {
     for (const [i, r] of relics.entries()) { const at = locations[i]; r.group.position.set(at.x, -at.depth, at.z); r.group.scale.setScalar(1); r.group.rotation.set(0, 0, 0); r.group.visible = !found.has(at.id); }
-    const [pearl, bottle, compass, key, lantern, moon] = locations;
-    moveProp(shellProp, pearl.x, -pearl.depth - 0.4, pearl.z); moveProp(pearlStand, pearl.x, -pearl.depth - 2.15, pearl.z);
-    moveProp(bottleStand, bottle.x, -bottle.depth - 1.65, bottle.z);
+    const [pearl, , compass, key, lantern, moon] = locations;
+    moveProp(shellProp, pearl.x, -pearl.depth - 0.4, pearl.z);
     moveProp(shipProp, compass.x - 1, -compass.depth - 2.3, compass.z - 2.8);
-    moveProp(keyProp, key.x, -key.depth - 1.25, key.z + 0.15); moveProp(keyStand, key.x, -key.depth - 3.1, key.z - 0.4);
-    moveProp(ruin, lantern.x, -lantern.depth + 0.3, lantern.z - 1.8); moveProp(ruinStand, lantern.x, -lantern.depth - 3.2, lantern.z - 2);
+    moveProp(keyProp, key.x, -key.depth - 1.25, key.z + 0.15);
+    moveProp(ruin, lantern.x, -lantern.depth + 0.3, lantern.z - 1.8);
     moveProp(altarProp, moon.x, -moon.depth, moon.z - 1.3);
   }
   placeDiscoveries();
@@ -128,6 +123,7 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
     for (const hit of ray.intersectObjects(candidates, false)) {
       if (!visible(hit.object)) continue;
       const data = hit.object.userData, id = data.relic as RelicId | undefined;
+      if (data.maxPickDistance && hit.distance > data.maxPickDistance) continue;
       if (id && !found.has(id)) return { kind: 'relic', id, point: hit.point };
       if (data.fish && hit.instanceId !== undefined) return { kind: 'fish', fish: data.fish[hit.instanceId], point: hit.point };
       if (data.creature) return { kind: 'creature', object: data.creature.root, point: hit.point };
@@ -198,14 +194,17 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
       time += dt; current = approach(current, target, dt, options.reduced || gestures.active); rig.update(current, dt, options.reduced || gestures.active);
       water.time.value = options.reduced ? 0 : time; water.strength.value *= Math.exp(-dt * 2.4); background.uniforms.uDepth.value = current / MAX_DEPTH;
       (scene.fog as T.FogExp2).color.set('#12454d').lerp(deepFog, current / MAX_DEPTH);
+      (scene.fog as T.FogExp2).density = 0.018 + current / MAX_DEPTH * 0.012;
       const complete = found.size === RELICS.length;
       for (const prop of habitats.scenery) {
-        prop.root.visible = Math.abs(prop.home.y + current) < rig.height * 0.75 + 13;
+        prop.root.visible = prop.root === habitats.floor || Math.abs(prop.home.y + current) < rig.height * 0.75 + 13;
         if (!prop.root.visible) continue;
         prop.pulse *= Math.exp(-dt * 3); prop.root.position.copy(prop.home); prop.root.rotation.copy(prop.rotation);
         const motion = prop.pulse * (options.reduced ? 0.2 : Math.sin(time * (prop.kind === 'rock' ? 16 : 5)));
-        prop.root.rotation.z += motion * (prop.kind === 'rock' ? 0.015 : 0.1);
-        if (prop.kind === 'rock') prop.root.position.y += Math.abs(motion) * 0.025;
+        if (!prop.anchored) {
+          prop.root.rotation.z += motion * (prop.kind === 'rock' ? 0.015 : 0.1);
+          if (prop.kind === 'rock') prop.root.position.y += Math.abs(motion) * 0.025;
+        }
       }
       for (const c of creatures) {
         c.root.visible = (c !== whale || complete) && Math.abs(c.home.y + current) < rig.height * 0.7 + 6;

@@ -33,7 +33,7 @@ Stop the development server before building; both use `.next`.
 - `src/world/engine.ts`: one renderer, scene, camera, animation loop, raycasting and input.
 - `src/world/models.ts`: relics, shells, ruins, jellyfish, and shared materials.
 - `src/world/camera.ts`: perspective projection, full orbit, responsive framing, and pan/zoom.
-- `src/world/habitat.ts`: sculpted rock shelves, rounded boulders, branching coral, curled leaf meshes, and reactive caustics.
+- `src/world/habitat.ts`: one continuous ocean floor beneath the deepest camera stop, eroded limestone, instanced gravel, ribbon kelp, seagrass, sea fans, and reactive materials. All rocks and rooted vegetation sit on this deepest seabed; the upper water contains creatures and discoveries.
 - `src/world/schools.ts`: 216 fish in instanced schools, swimming deformation, local avoidance, and reset.
 - `src/world/effects.ts`: spatial light shafts, bubbles, sediment, and pooled celebration particles.
 - `src/world/assets.ts`: GLB loading, animated creature placement, and resource disposal.
