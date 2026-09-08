@@ -67,68 +67,6 @@ function merged(parts: T.Mesh[], color: string) {
   return mesh(geo!, color);
 }
 
-export function reef(seed: number, color: string) {
-  const g = new T.Group(); const rocks: T.Mesh[] = [];
-  for (let i = 0; i < 12; i++) {
-    const n = Math.sin(i * 73.31 + seed) * 0.5 + 0.5;
-    const geo = new T.IcosahedronGeometry(1, 2);
-    const positions = geo.getAttribute('position');
-    for (let j = 0; j < positions.count; j++) {
-      const x = positions.getX(j), y = positions.getY(j), z = positions.getZ(j);
-      const noise = 1 + Math.sin(x * 7 + seed) * Math.sin(y * 8 + z * 4) * 0.1;
-      positions.setXYZ(j, x * noise, y * noise, z * noise);
-    }
-    geo.computeVertexNormals();
-    const r = mesh(geo, color, [(i % 5 - 2) * 1.15 + n * 0.3, -Math.floor(i / 5) * 0.54 - n * 0.15, -n * 1.1], [0.75 + n * 0.7, 0.3 + n * 0.35, 0.65 + n]);
-    r.rotation.set(n * 0.35, n * 2, n * 0.2); rocks.push(r);
-  }
-  const combined = merged(rocks, color);
-  const rockMaterial = new T.MeshStandardMaterial({ color, roughness: 0.94, metalness: 0 });
-  rockMaterial.onBeforeCompile = (shader) => {
-    shader.vertexShader = 'varying vec3 vRock;\n' + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvRock = position;');
-    shader.fragmentShader = 'varying vec3 vRock;\n' + shader.fragmentShader;
-    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\nfloat grain=sin(vRock.x*57.)*sin(vRock.y*69.)*sin(vRock.z*81.); float strata=sin(vRock.y*32.+sin(vRock.x*3.)); diffuseColor.rgb *= .86 + grain*.07+strata*.07;');
-  };
-  combined.material = rockMaterial; g.add(combined); return g;
-}
-
-export function coral(color: string, seed: number) {
-  const parts: T.Mesh[] = [];
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 7 - 0.5) * 1.9; const h = 1 + (Math.sin(seed + i * 13) * 0.5 + 0.5) * 1.1;
-    const limb = mesh(new T.CylinderGeometry(0.045, 0.12, h, 7), color, [Math.sin(a) * h * 0.4, h * 0.45, 0]); limb.rotation.z = -a * 0.6; parts.push(limb);
-    for (let j = 0; j < 2; j++) { const twig = mesh(new T.CylinderGeometry(0.015, 0.06, 0.5, 6), color, [Math.sin(a) * h * 0.5 + (j ? 0.2 : -0.2), h * 0.65, 0]); twig.rotation.z = j ? -0.65 : 0.65; parts.push(twig); }
-  }
-  return merged(parts, color);
-}
-
-export function frond(color: string, height: number, phase: number) {
-  const verts: number[] = []; const indices: number[] = [];
-  const stem = (p: number) => new T.Vector3(Math.sin(p * 5 + phase) * p * 0.45, p * height, Math.sin(p * 4 + phase) * 0.25);
-  const blade = (base: T.Vector3, direction: number, length: number, broad: number) => {
-    const offset = verts.length / 3;
-    for (let i = 0; i <= 16; i++) {
-      const p = i / 16, width = Math.sin(p * Math.PI) * broad;
-      const x = base.x + direction * p * length * 0.7;
-      const y = base.y + Math.sin(p * 1.8) * length * 0.6;
-      const z = base.z + Math.sin(p * 3 + phase) * p * 0.35;
-      verts.push(x-width, y, z, x, y + width*.25, z + width*.6, x+width, y, z);
-      if (i < 16) { const n = offset + i * 3; indices.push(n,n+1,n+3,n+1,n+4,n+3,n+1,n+2,n+4,n+2,n+5,n+4); }
-    }
-  };
-  for (let i = 1; i < 8; i++) {
-    const p = i / 9;
-    blade(stem(p), i % 2 ? -1 : 1, height * (0.16 + Math.sin(i + phase) * 0.035), 0.11 + height * 0.018);
-  }
-  blade(stem(0.78), Math.sin(phase), height * 0.34, 0.16);
-  const geo = new T.BufferGeometry(); geo.setAttribute('position', new T.Float32BufferAttribute(verts, 3)); geo.setIndex(indices); geo.computeVertexNormals();
-  const points = Array.from({length: 20}, (_, i) => stem(i/19));
-  const stalk = new T.TubeGeometry(new T.CatmullRomCurve3(points), 28, 0.025, 5, false); stalk.deleteAttribute('uv');
-  const combined = mergeGeometries([geo, stalk])!; geo.dispose(); stalk.dispose();
-  const m = new T.MeshStandardMaterial({ color, roughness: 0.64, metalness: 0.05, side: T.DoubleSide }); return new T.Mesh(combined, m);
-}
-
 export function jelly(color: string, seed: number) {
   const g = new T.Group();
   const cap = mesh(new T.SphereGeometry(0.7, 24, 14, 0, Math.PI * 2, 0, Math.PI / 2 + 0.15), color, [0, 0, 0], [1, 0.68, 1], 0.45);
@@ -147,7 +85,7 @@ export function arch() {
 
 export function makeRelics() {
   return RELICS.map((relic) => {
-    const group = new T.Group(); group.position.set(relic.x, -relic.depth, 1.3);
+    const group = new T.Group(); group.position.set(0, -relic.depth, 0);
     const model = relicModel(relic.id); group.add(model);
     const hit = new T.Mesh(new T.SphereGeometry(0.9, 12, 8), new T.MeshBasicMaterial({ visible: false }));
     hit.userData.relic = relic.id; group.add(hit); return { relic, group, model, hit };

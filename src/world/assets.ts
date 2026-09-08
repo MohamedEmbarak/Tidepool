@@ -15,6 +15,7 @@ export function disposeObject(root: T.Object3D) {
       materials.add(m); Object.values(m).forEach(value => { if (value instanceof T.Texture) textures.add(value); });
     });
     if (o instanceof T.SkinnedMesh) o.skeleton.dispose();
+    if (o instanceof T.InstancedMesh) o.dispose();
   });
   geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); textures.forEach(t => t.dispose());
 }

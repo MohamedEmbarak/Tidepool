@@ -1,5 +1,5 @@
 export type Point = { x: number; y: number };
-export type GestureTarget = { kind: 'creature' | 'relic'; value: unknown };
+export type GestureTarget = { kind: 'creature' | 'relic' | 'scenery'; value: unknown };
 export type GestureCallbacks = {
   hit: (point: Point) => GestureTarget | null;
   start: () => void;

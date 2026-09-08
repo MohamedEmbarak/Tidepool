@@ -1,289 +1,251 @@
 import * as T from 'three';
-import { approach, canCollect, MAX_DEPTH, RELICS, type RelicId } from './catalog';
-import { arch, clearMaterials, coral, frond, jelly, makeRelics, mesh, reef, shellModel } from './models';
+import { approach, canCollect, discoveryLocations, MAX_DEPTH, randomSequence, RELICS, type RelicId } from './catalog';
+import { arch, clearMaterials, jelly, makeRelics, mesh, shellModel } from './models';
 import { disposeObject, loadModels, placeModel } from './assets';
 import { DiveGestures, type GestureTarget } from './gestures';
+import { DiveCamera } from './camera';
+import { boulder, buildHabitats, seaPlant, type Scenery, type Water } from './habitat';
+import { createSchools, SCHOOL_FISH_COUNT, type SchoolFish } from './schools';
+import { waterEffects } from './effects';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
-export type DiveState = { depth: number; zoom: number; nearby: RelicId[]; opened: RelicId[]; hovered: string | null; complete: boolean };
-export type DiveEngine = { goTo: (depth: number) => void; resetView: () => void; activate: (id: RelicId) => void; setPaused: (paused: boolean) => void; dispose: () => void };
-type Options = { found: RelicId[]; reduced: boolean; onState: (state: DiveState) => void; onCollect: (id: RelicId) => void; onHint: (hint: string) => void; onError: () => void };
+export type DiveState = { depth: number; zoom: number; angle: number; fishCount: number; nearby: RelicId[]; opened: RelicId[]; hovered: string | null; complete: boolean };
+export type DiveEngine = { goTo: (depth: number) => void; resetView: () => void; reset: (seed: number) => void; activate: (id: RelicId) => void; setPaused: (paused: boolean) => void; dispose: () => void };
+type Options = { found: RelicId[]; seed: number; reduced: boolean; onState: (state: DiveState) => void; onCollect: (id: RelicId) => void; onHint: (hint: string) => void; onError: () => void };
+type Pick = { kind: 'relic' | 'fish' | 'creature' | 'scenery'; point: T.Vector3; id?: RelicId; fish?: SchoolFish; object?: T.Object3D; scenery?: Scenery };
+type Creature = { root: T.Object3D; home: T.Vector3; phase: number; scale: number; pulse: number; mixer?: T.AnimationMixer; manta?: boolean };
 
 export async function createDive(canvas: HTMLCanvasElement, options: Options, signal?: AbortSignal): Promise<DiveEngine> {
   const assets = await loadModels();
   if (signal?.aborted) { Object.values(assets).forEach(a => disposeObject(a.scene)); throw new DOMException('Cancelled', 'AbortError'); }
-  const renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-  renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
-  const scene = new T.Scene(); scene.fog = new T.FogExp2('#103948', 0.024);
-  const environment = new RoomEnvironment(); const pmrem = new T.PMREMGenerator(renderer);
-  const environmentMap = pmrem.fromScene(environment, 0.04); scene.environment = environmentMap.texture;
-  environment.dispose(); pmrem.dispose();
-  const camera = new T.OrthographicCamera(-16, 16, 10, -10, 0.1, 90); camera.position.set(0, 0, 18); scene.add(camera);
-  scene.add(new T.HemisphereLight('#c0fff1', '#384359', 1.6));
-  const sun = new T.DirectionalLight('#fff1d2', 2.4); sun.position.set(-8, 14, 12); scene.add(sun);
-  const fill = new T.PointLight('#b1e0ff', 45, 38, 1.5); fill.position.set(3, 2, 8); camera.add(fill);
-
+  let renderer: T.WebGLRenderer;
+  try { renderer = new T.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' }); }
+  catch (error) { Object.values(assets).forEach(a => disposeObject(a.scene)); throw error; }
+  const ratio = Math.min(devicePixelRatio, 1.5); renderer.setPixelRatio(ratio);
+  renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.08;
+  const scene = new T.Scene(); scene.fog = new T.FogExp2('#12454d', 0.018);
+  const room = new RoomEnvironment(), pmrem = new T.PMREMGenerator(renderer), environment = pmrem.fromScene(room, 0.04);
+  scene.environment = environment.texture; room.dispose(); pmrem.dispose();
+  const rig = new DiveCamera(), camera = rig.camera; scene.add(camera);
+  scene.add(new T.HemisphereLight('#bce6d5', '#203244', 1.7));
+  const sun = new T.DirectionalLight('#ffeed0', 2.8); sun.position.set(-7, 18, 9); scene.add(sun);
+  const fill = new T.PointLight('#96dadd', 45, 65, 1.5); fill.position.set(3, 4, 8); camera.add(fill);
+  const water: Water = { time: { value: 0 }, point: { value: new T.Vector3(100, 100, 100) }, strength: { value: 0 } };
   const background = new T.ShaderMaterial({ depthTest: false, depthWrite: false,
-    uniforms: { uTime: { value: 0 }, uDepth: { value: 0 } },
+    uniforms: { uTime: water.time, uDepth: { value: 0 }, uTouch: water.strength },
     vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-    fragmentShader: `varying vec2 vUv; uniform float uTime; uniform float uDepth;
-      void main(){
-        vec3 surface=mix(vec3(.012,.13,.17),vec3(.12,.48,.48),vUv.y);
-        vec3 deep=mix(vec3(.008,.012,.036),vec3(.045,.085,.17),vUv.y);
-        vec3 c=mix(surface,deep,smoothstep(0.,.85,uDepth));
-        float rays=pow(max(0.,sin(vUv.x*37.+vUv.y*9.+sin(uTime*.17)*.4)),14.);
-        rays+=pow(max(0.,sin(vUv.x*21.+vUv.y*6.-uTime*.06)),20.)*.5;
-        c+=vec3(.15,.28,.22)*rays*vUv.y*.28*(1.-uDepth);
-        float haze=exp(-length((vUv-vec2(.55,.7))*vec2(1.3,1.)) * 4.);
-        c+=vec3(.035,.07,.08)*haze;
-        c*=.7+.3*pow(max(0.,1.-length(vUv-.5)),.6);
-        gl_FragColor=vec4(c,1.);
-      }` });
-  const backdrop = new T.Mesh(new T.PlaneGeometry(1, 1), background); backdrop.position.z = -55; backdrop.renderOrder = -100; camera.add(backdrop);
-
+    fragmentShader: `varying vec2 vUv;uniform float uTime;uniform float uDepth;uniform float uTouch;
+      void main(){vec3 surface=mix(vec3(.007,.085,.12),vec3(.12,.43,.41),vUv.y);vec3 deep=mix(vec3(.006,.012,.03),vec3(.035,.09,.15),vUv.y);
+      vec3 color=mix(surface,deep,smoothstep(0.,1.,uDepth));float shafts=pow(max(0.,sin(vUv.x*24.+vUv.y*4.+sin(uTime*.2)*.25)),20.);
+      color+=vec3(.17,.26,.19)*shafts*pow(vUv.y,2.)*(.28+uTouch*.02)*(1.-uDepth);color*=.84+.16*(1.-length(vUv-.5));gl_FragColor=vec4(color,1.);}` });
+  const backdrop = new T.Mesh(new T.PlaneGeometry(1, 1), background); backdrop.position.z = -100; backdrop.renderOrder = -100; camera.add(backdrop);
   const world = new T.Group(); scene.add(world);
-  const movers: { group: T.Object3D; baseY: number; phase: number; kind: 'kelp' | 'jelly' }[] = [];
-  const targets: T.Object3D[] = [];
-  const add = (object: T.Object3D, x: number, y: number, z = 0) => { object.position.set(x, y, z); world.add(object); return object; };
-
-  // All habitats share these world coordinates and the same camera.
-  add(reef(3, '#647977'), 1.5, -3.45, 0);
-  add(reef(8, '#375d68'), -8.5, -1.9, -3).scale.set(1.6, 1.1, 1.4);
-  add(reef(9, '#234e5a'), 10, -7.5, -4).scale.set(1.8, 1.3, 1.4);
-  for (let i = 0; i < 13; i++) {
-    const c = coral(['#d89a97', '#bca5cc', '#dfa987', '#79bdad'][i % 4], i);
-    add(c, (i % 7 - 3) * 1.4 + 1.3, -3.1 - Math.floor(i / 7) * 1.3, i < 7 ? -0.8 : 1); c.scale.setScalar(0.45 + (i % 3) * 0.2);
-  }
-  for (let i = 0; i < 9; i++) {
-    const f = frond(i % 2 ? '#479a8d' : '#387772', 2 + i % 3, i); add(f, -6 + i * 1.5, -6, -2);
-    movers.push({ group: f, baseY: -6, phase: i, kind: 'kelp' });
-  }
-  const shell = shellModel(); add(shell.group, 1.3, -2.4, 1.25);
-  add(reef(4, '#31565c'), -4.4, -20.5, -2); add(coral('#b891b3', 2), -4, -20, -1).scale.setScalar(0.7);
-
-  const ship = placeModel(assets['ship-small'], 7.4, -1.1);
-  add(ship.root, 1.1, -40.4, -1.6); ship.root.rotation.set(0.12, 0, -0.14);
-  add(reef(18, '#3f526b'), 2.8, -42.2, -1.4).scale.set(1.5, 1, 1);
-  for (let i = 0; i < 12; i++) {
-    const j = jelly(['#adb2ef', '#83dacc', '#e4b0d1'][i % 3], i); const y = -25 - i * 2.2;
-    add(j, Math.sin(i * 2.3) * 5.6, y, i % 3 - 2); j.scale.setScalar(0.6 + (i % 3) * 0.24); j.userData.creature = true;
-    j.traverse((o) => { if (o instanceof T.Mesh) { o.userData.creature = j; targets.push(o); } });
-    j.userData.homeX = j.position.x; j.userData.restScale = j.scale.y;
-    movers.push({ group: j, baseY: y, phase: i, kind: 'jelly' });
-  }
-
-  for (let i = 0; i < 24; i++) {
-    const y = -65 - Math.floor(i / 8) * 8 + Math.sin(i * 21.1) * 0.35; const f = frond(['#398c77', '#539f80', '#266a67'][i % 3], 4.5 + (Math.sin(i * 11.7)*0.5+0.5)*3, i);
-    add(f, (i % 8 - 3.5) * 1.4, y, i % 4 - 2); movers.push({ group: f, baseY: y, phase: i, kind: 'kelp' });
-  }
-  for(let row=0;row<3;row++) { add(reef(row+7, '#284f53'), -3, -65.7-row*8, -1); add(reef(row+15, '#23494b'), 3, -65.5-row*8, -1.5); }
-  add(reef(11, '#284f53'), -2, -72, -1); add(reef(13, '#244550'), 4.7, -82, -2);
-  const keyCover = new T.Group(); for (let i = 0; i < 5; i++) { const f = frond('#93b988', 2.4, i); f.position.x = (i - 2) * 0.25; keyCover.add(f); }
-  add(keyCover, -1.8, -69, 2);
-
-  add(arch(), 2.3, -97, -0.7); add(reef(22, '#2d405d'), 2.4, -102, -2);
-  add(reef(16, '#222e4b'), -6.5, -109, -3).scale.setScalar(1.6);
-  const altar = new T.Group();
-  for (let i = 0; i < 3; i++) { const r = mesh(new T.TorusGeometry(1.3 + i * 0.5, 0.055, 8, 64), '#617ca0', [0, 0, 0], [1, 1, 1], 0.12); r.rotation.x = i * 0.45; r.rotation.y = i * 0.35; altar.add(r); }
-  add(altar, 0, -118, -0.8); add(reef(4, '#303c58'), 0, -121.7, -2).scale.set(1.5, 0.8, 1);
-
-  const relics = makeRelics(); relics.forEach((r) => { world.add(r.group); targets.push(r.hit); });
-  const whaleModel = placeModel(assets.whale, 8.4, -Math.PI / 2 + 0.15);
-  const starwhale = whaleModel.root; add(starwhale, 0, -114, 0); starwhale.visible = false;
-  starwhale.traverse(o => { if (o instanceof T.Mesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
-    if (m instanceof T.MeshStandardMaterial) { m.emissive.set('#699ccb'); m.emissiveIntensity = 0.3; m.roughness = 0.48; }
-  }); });
-
-  const particles = new Float32Array(850 * 3);
-  for (let i = 0; i < 850; i++) { particles[i * 3] = Math.sin(i * 127.1) * 19; particles[i * 3 + 1] = 10 - (i / 850) * 145; particles[i * 3 + 2] = Math.cos(i * 311.7) * 7 - 4; }
-  const particleGeometry = new T.BufferGeometry(); particleGeometry.setAttribute('position', new T.BufferAttribute(particles, 3));
-  const plankton = new T.Points(particleGeometry, new T.ShaderMaterial({ transparent: true, depthWrite: false,
-    uniforms: { uTime: { value: 0 }, uRatio: { value: Math.min(devicePixelRatio, 1.5) } },
-    vertexShader: 'uniform float uTime; uniform float uRatio; varying float vAlpha; void main(){vec3 p=position;p.x+=sin(uTime*.15+p.y)*.16;vAlpha=.25+.4*(.5+.5*sin(p.y*7.+uTime));gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);gl_PointSize=(1.8+mod(abs(p.y),2.))*uRatio;}',
-    fragmentShader: 'varying float vAlpha; void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;gl_FragColor=vec4(.65,.91,1.,vAlpha*(1.-d*2.));}' })); world.add(plankton);
-
-  const swimmers = Array.from({ length: 16 }, (_, i) => {
-    const manta = i === 0 || i === 9;
-    const name = manta ? 'manta-ray' : (['fish1', 'fish2', 'fish3'] as const)[i % 3];
-    const placed = placeModel(assets[name], manta ? 3.4 : 0.9 + i % 3 * 0.32, (i % 2 ? -1 : 1) * Math.PI / 2);
-    const baseY = i < 4 ? [2, -0.8, -1.7, 3.3][i] : -Math.floor(i / 4) * 30 - (i % 4) * 2.8;
-    const baseX = Math.sin(i * 2.4) * 4.8;
-    add(placed.root, baseX, baseY, -2.5 - i % 3); placed.orientation.rotation.x = manta ? 0.3 : 0;
-    return { ...placed, baseX, baseY, phase: i, direction: i % 2 ? -1 : 1 };
-  });
-  const found = new Set(options.found); const opened = new Set<RelicId>();
-  let current = 0, target = 0, width = 0, height = 0, viewHeight = 20, time = 0, last = 0, reportAt = -1;
-  let raf = 0, paused = false, disposed = false, hovered: string | null = null;
-  let creature: T.Object3D | null = null, diveVelocity = 0, zoom = 1, panX = 0;
-  const ray = new T.Raycaster(); const pointer = new T.Vector2(); const mouse = new T.Vector2();
-  const v = new T.Vector3(); const deepFog = new T.Color('#090f28'); let hoverId: RelicId | null = null;
+  const habitats = buildHabitats(water); world.add(habitats.root);
+  const schools = createSchools(assets, water); world.add(schools.root);
+  const effects = waterEffects(water, ratio); world.add(effects.root);
+  const targets: T.Object3D[] = [...schools.targets], creatures: Creature[] = [];
+  const found = new Set(options.found), opened = new Set<RelicId>(), collectTime = new Map<RelicId, number>();
+  let locations = discoveryLocations(options.seed);
+  let current = 0, target = 0, width = 1, height = 1, time = 0, last = 0, reportAt = -1, lastHover = -100;
+  let raf = 0, paused = false, disposed = false, hovered: string | null = null, hoverId: RelicId | null = null, diveVelocity = 0;
+  let dragged: T.Object3D | null = null, celebratedAt = -100, celebrationWave = 0;
+  const ray = new T.Raycaster(), pointer = new T.Vector2(), plane = new T.Plane(), direction = new T.Vector3(), delta = new T.Vector3(), point = new T.Vector3();
+  const temp = new T.Vector3(), deepFog = new T.Color('#091427');
   let lastReport = '';
-  const collectTime = new Map<RelicId, number>();
 
-  function goTo(depth: number) { diveVelocity = 0; target = Math.min(MAX_DEPTH, Math.max(0, depth)); }
-  function resetView() { zoom = 1; panX = 0; diveVelocity = 0; resize(); reportAt = -1; }
+  const shell = shellModel(); const shellProp = habitats.register(shell.group, 'structure', 'An open shell');
+  const pearlStand = habitats.register(boulder(304, [1.7, 1.5, 1.55], habitats.rockMaterial), 'rock', 'Pearl ledge');
+  const bottleStand = habitats.register(boulder(702, [1.4, 1.1, 1.3], habitats.rockMaterial), 'rock', 'A weathered outcrop');
+  const ship = placeModel(assets['ship-small'], 7.6, -1.1); ship.root.rotation.set(0.07, 0, -0.14);
+  const shipProp = habitats.register(ship.root, 'structure', 'Lost ship · stir the current');
+  const keyCover = new T.Group();
+  for (let i = 0; i < 3; i++) { const leaf = seaPlant(93 + i, 2.25, habitats.plantMaterial); leaf.position.set((i - 1) * 0.38, 0, i % 2 * 0.18); keyCover.add(leaf); }
+  const keyProp = habitats.register(keyCover, 'plant', 'The hidden garden');
+  const keyStand = habitats.register(boulder(908, [1.8, 2.1, 1.7], habitats.rockMaterial), 'rock', 'Garden roots');
+  const ruin = habitats.register(arch(), 'structure', 'An ancient arch');
+  const ruinStand = habitats.register(boulder(701, [3.2, 1.4, 2], habitats.rockMaterial), 'rock', 'The archive foundation');
+  const altar = new T.Group();
+  for (let i = 0; i < 3; i++) { const ring = mesh(new T.TorusGeometry(1.3 + i * 0.4, 0.035, 8, 64), '#7d9cb9', [0, 0, 0], [1, 1, 1], 0.25); ring.rotation.set(i * 0.45, i * 0.55, 0); altar.add(ring); }
+  const altarProp = habitats.register(altar, 'structure', 'The memory rings');
+  const relics = makeRelics(); relics.forEach(r => { world.add(r.group); r.hit.userData.owner = r.group; targets.push(r.hit); r.model.traverse(o => { if (o instanceof T.Mesh) { o.userData.relic = r.relic.id; o.userData.owner = r.group; targets.push(o); } }); });
+  shell.group.traverse(o => { if (o instanceof T.Mesh) o.userData.relic = 'pearl'; });
+  keyCover.traverse(o => { if (o instanceof T.Mesh) o.userData.relic = 'key'; });
+  for (const prop of habitats.scenery) prop.root.traverse(o => { if (o instanceof T.Mesh) targets.push(o); });
+  const moveProp = (prop: Scenery, x: number, y: number, z: number) => { prop.home.set(x, y, z); prop.root.position.copy(prop.home); };
+  function placeDiscoveries() {
+    for (const [i, r] of relics.entries()) { const at = locations[i]; r.group.position.set(at.x, -at.depth, at.z); r.group.scale.setScalar(1); r.group.rotation.set(0, 0, 0); r.group.visible = !found.has(at.id); }
+    const [pearl, bottle, compass, key, lantern, moon] = locations;
+    moveProp(shellProp, pearl.x, -pearl.depth - 0.4, pearl.z); moveProp(pearlStand, pearl.x, -pearl.depth - 2.15, pearl.z);
+    moveProp(bottleStand, bottle.x, -bottle.depth - 1.65, bottle.z);
+    moveProp(shipProp, compass.x - 1, -compass.depth - 2.3, compass.z - 2.8);
+    moveProp(keyProp, key.x, -key.depth - 1.25, key.z + 0.15); moveProp(keyStand, key.x, -key.depth - 3.1, key.z - 0.4);
+    moveProp(ruin, lantern.x, -lantern.depth + 0.3, lantern.z - 1.8); moveProp(ruinStand, lantern.x, -lantern.depth - 3.2, lantern.z - 2);
+    moveProp(altarProp, moon.x, -moon.depth, moon.z - 1.3);
+  }
+  placeDiscoveries();
+
+  function addCreature(root: T.Object3D, x: number, y: number, z: number, phase: number, mixer?: T.AnimationMixer, manta = false) {
+    root.position.set(x, y, z); world.add(root);
+    const creature: Creature = { root, home: root.position.clone(), phase, scale: root.scale.y, pulse: 0, mixer, manta };
+    const proxy = new T.Mesh(new T.SphereGeometry(manta ? 1.25 : 0.72, 10, 8), new T.MeshBasicMaterial({ visible: false }));
+    proxy.userData.creature = creature; proxy.userData.owner = root; root.add(proxy); targets.push(proxy); creatures.push(creature); return creature;
+  }
+  for (let i = 0; i < 14; i++) { const object = jelly(['#aebce3', '#7ac9c6', '#d4a0c3'][i % 3], i); object.scale.setScalar(0.5 + i % 3 * 0.18); addCreature(object, Math.sin(i * 2.3) * 6, -25 - i * 1.8, Math.cos(i * 2.3) * 5, i); }
+  for (let i = 0; i < 3; i++) { const manta = placeModel(assets['manta-ray'], 3.3, Math.PI / 2); manta.orientation.rotation.x = 0.25; addCreature(manta.root, -1 + i, -[0, 55, 91][i], -1.5, i * 2, manta.mixer, true); }
+  const whaleModel = placeModel(assets.whale, 8.4, -Math.PI / 2 + 0.15), starwhale = whaleModel.root;
+  const whale = addCreature(starwhale, 0, -114, -0.8, 1, whaleModel.mixer, true); starwhale.visible = false;
+  starwhale.traverse(o => { if (o instanceof T.Mesh) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => { if (m instanceof T.MeshStandardMaterial) { m.emissive.set('#407aaa'); m.emissiveIntensity = 0.3; } }); });
+
+  const snow = new Float32Array(1500 * 3), random = randomSequence(6001);
+  for (let i = 0; i < 1500; i++) { snow[i * 3] = (random() - 0.5) * 35; snow[i * 3 + 1] = 12 - random() * 150; snow[i * 3 + 2] = (random() - 0.5) * 32; }
+  const snowGeometry = new T.BufferGeometry(); snowGeometry.setAttribute('position', new T.BufferAttribute(snow, 3));
+  const plankton = new T.Points(snowGeometry, new T.ShaderMaterial({ transparent: true, depthWrite: false,
+    uniforms: { uTime: water.time, uTouch: water.point, uStrength: water.strength, uRatio: { value: ratio } },
+    vertexShader: `uniform float uTime;uniform vec3 uTouch;uniform float uStrength;uniform float uRatio;varying float vAlpha;
+      void main(){vec3 p=position;p.x+=sin(uTime*.2+p.y)*.18;vec3 d=p-uTouch;float dist=length(d);p+=d/max(.1,dist)*exp(-dist*.5)*uStrength*.7;vec4 mv=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;gl_PointSize=clamp(55./max(8.,-mv.z),1.,3.)*uRatio;vAlpha=.15+.35*(.5+.5*sin(p.y*7.+uTime*.7));}`,
+    fragmentShader: 'varying float vAlpha;void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;gl_FragColor=vec4(.63,.89,.88,vAlpha*(1.-d*2.));}' })); world.add(plankton);
+
+  function goTo(depth: number) { diveVelocity = 0; target = T.MathUtils.clamp(depth, 0, MAX_DEPTH); }
+  function resetView() { rig.reset(); diveVelocity = 0; resize(); reportAt = -1; }
   function activate(id: RelicId) {
-    const relic = RELICS.find((r) => r.id === id)!;
-    if (paused || Math.abs(current - relic.depth) > viewHeight * 0.46 || found.has(id)) return;
-    if ((id === 'pearl' || id === 'key') && !opened.has(id)) {
-      opened.add(id); options.onHint(id === 'pearl' ? 'A little sunrise. Touch the pearl to keep it.' : 'The fronds part. The key is yours to take.'); reportAt = -1; return;
-    }
+    const relic = RELICS.find(r => r.id === id)!;
+    if (paused || Math.abs(current - relic.depth) > rig.height * 0.46 || found.has(id)) return;
+    const model = relics.find(r => r.relic.id === id)!;
+    water.point.value.copy(model.group.position); water.strength.value = 2;
+    if ((id === 'pearl' || id === 'key') && !opened.has(id)) { opened.add(id); options.onHint(id === 'pearl' ? 'A little sunrise. Touch the pearl to keep it.' : 'The garden opens. Touch the key to take it.'); effects.burst(model.group.position, false, false, options.reduced); reportAt = -1; return; }
     if (!canCollect(id, found, opened)) { options.onHint('Five memories are missing. The rings are waiting for them.'); return; }
-    found.add(id); collectTime.set(id, time); options.onCollect(id); reportAt = -1;
+    found.add(id); collectTime.set(id, time); effects.burst(model.group.position, id === 'moon', false, options.reduced); schools.scatter(model.group.position, id === 'moon' ? 8 : 4);
+    if (id === 'moon') { celebratedAt = time; celebrationWave = 1; }
+    options.onCollect(id); reportAt = -1;
   }
-  function hitAt(x: number, y: number) {
-    const rect = canvas.getBoundingClientRect(); pointer.set((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1);
-    ray.setFromCamera(pointer, camera);
-    return ray.intersectObjects(targets, false).find((hit) => {
-      const id = hit.object.userData.relic as RelicId | undefined;
-      return !id || !found.has(id);
-    });
+  function setRay(x: number, y: number) {
+    const rect = canvas.getBoundingClientRect(); pointer.set((x - rect.left) / rect.width * 2 - 1, -(y - rect.top) / rect.height * 2 + 1); ray.setFromCamera(pointer, camera);
   }
-  const onWheel = (e: WheelEvent) => { if (paused || e.ctrlKey) return; e.preventDefault(); goTo(target + Math.max(-280, Math.min(280, e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1))) * 0.015); };
-  const gestureTarget = (x: number, y: number): GestureTarget | null => {
-    const hit = hitAt(x, y)?.object;
-    if (hit?.userData.relic) return { kind: 'relic', value: hit.userData.relic };
-    return hit?.userData.creature ? { kind: 'creature', value: hit.userData.creature } : null;
-  };
+  function visible(object: T.Object3D) { for (let parent: T.Object3D | null = object; parent; parent = parent.parent) if (!parent.visible) return false; return true; }
+  function hitAt(x: number, y: number): Pick | null {
+    setRay(x, y);
+    const candidates = targets.filter(object => visible(object.userData.owner ?? object));
+    for (const hit of ray.intersectObjects(candidates, false)) {
+      if (!visible(hit.object)) continue;
+      const data = hit.object.userData, id = data.relic as RelicId | undefined;
+      if (id && !found.has(id)) return { kind: 'relic', id, point: hit.point };
+      if (data.fish && hit.instanceId !== undefined) return { kind: 'fish', fish: data.fish[hit.instanceId], point: hit.point };
+      if (data.creature) return { kind: 'creature', object: data.creature.root, point: hit.point };
+      if (data.scenery) return { kind: 'scenery', scenery: data.scenery, point: hit.point };
+    }
+    return null;
+  }
+  function waterPoint(x: number, y: number, strength: number, picked?: Pick | null) {
+    if (picked) point.copy(picked.point);
+    else { setRay(x, y); camera.getWorldDirection(direction); plane.setFromNormalAndCoplanarPoint(direction, rig.focus); if (!ray.ray.intersectPlane(plane, point)) return; }
+    water.point.value.copy(point); water.strength.value = Math.max(water.strength.value, strength);
+  }
+  function react(picked: Pick | null, click = false) {
+    if (picked?.scenery) picked.scenery.pulse = Math.max(picked.scenery.pulse, click ? 1 : 0.35);
+    if (picked?.object) { const c = creatures.find(c => c.root === picked.object); if (c) c.pulse = click ? 1 : 0.4; }
+    if (click) { schools.scatter(water.point.value, 7); effects.burst(water.point.value, false, picked?.scenery?.kind === 'rock', options.reduced); }
+  }
+  const asGesture = (picked: Pick | null): GestureTarget | null => picked ? { kind: picked.kind === 'relic' ? 'relic' : picked.kind === 'fish' || picked.kind === 'creature' ? 'creature' : 'scenery', value: picked } : null;
   const gestures = new DiveGestures({
-    hit: p => gestureTarget(p.x, p.y),
-    start: () => { diveVelocity = 0; creature = null; hovered = null; hoverId = null; },
-    navigate: (dx, dy, twoFinger) => {
-      goTo(target - dy * viewHeight / height);
-      if (twoFinger) panX = T.MathUtils.clamp(panX - dx * (camera.right - camera.left) / width, -6, 6);
+    hit: p => { const picked = hitAt(p.x, p.y); waterPoint(p.x, p.y, 1.2, picked); react(picked); return asGesture(picked); },
+    start: () => { diveVelocity = 0; dragged = null; hovered = null; hoverId = null; },
+    navigate: (dx, dy, twoFinger) => { goTo(target - dy * rig.height / height); if (twoFinger) rig.pan = T.MathUtils.clamp(rig.pan - dx * rig.width / width, -4, 4); else rig.orbit(dx, width); },
+    drag: (target, dx, dy) => {
+      const picked = target.value as Pick; delta.copy(rig.right).multiplyScalar(dx * rig.width / width).addScaledVector(rig.up, -dy * rig.height / height);
+      if (picked.fish) picked.fish.offset.add(delta).clampLength(0, 6);
+      if (picked.object) { dragged = picked.object; dragged.position.add(delta); }
     },
-    drag: (hit, dx, dy) => {
-      creature = hit.value as T.Object3D;
-      creature.position.x = T.MathUtils.clamp(creature.position.x + dx * (camera.right - camera.left) / width, -12, 12);
-      creature.position.y -= dy * viewHeight / height;
-    },
-    tap: (hit, p) => { if (hit?.kind === 'relic' && gestureTarget(p.x, p.y)?.value === hit.value) activate(hit.value as RelicId); },
-    hold: hit => {
-      const relic = RELICS.find(r => r.id === hit.value);
-      if (relic) { options.onHint(`${relic.name} · ${relic.clue}`); navigator.vibrate?.(12); }
-    },
-    zoom: (ratio, centre) => {
-      const oldWidth = camera.right - camera.left, oldHeight = viewHeight;
-      zoom = T.MathUtils.clamp(zoom * ratio, 0.8, 1.8); resize();
-      const rect = canvas.getBoundingClientRect();
-      panX = T.MathUtils.clamp(panX + ((centre.x - rect.left) / width - 0.5) * (oldWidth - camera.right + camera.left), -6, 6);
-      goTo(target + ((centre.y - rect.top) / height - 0.5) * (oldHeight - viewHeight));
-    },
-    release: velocity => { creature = null; diveVelocity = options.reduced ? 0 : T.MathUtils.clamp(-velocity * viewHeight / height, -40, 40); },
+    tap: (target, p) => { const picked = target?.value as Pick | undefined; const end = hitAt(p.x, p.y); waterPoint(p.x, p.y, 3, end); if (picked?.id && end?.id === picked.id) activate(picked.id); else react(end, true); },
+    hold: target => { const picked = target.value as Pick, relic = RELICS.find(r => r.id === picked.id); if (relic) { options.onHint(`${relic.name} · ${relic.clue}`); navigator.vibrate?.(12); } },
+    zoom: ratio => { rig.zoom = T.MathUtils.clamp(rig.zoom * ratio, 0.8, 1.8); resize(); reportAt = -1; },
+    release: velocity => { dragged = null; diveVelocity = options.reduced ? 0 : T.MathUtils.clamp(-velocity * rig.height / height, -40, 40); },
     reset: resetView,
   });
-  const cancelGestures = () => {
-    const ids = [...gestures.pointers.keys()]; gestures.cancel();
-    ids.forEach(id => { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); });
-  };
-  const onDown = (e: PointerEvent) => {
-    if (paused || e.button > 0) return;
-    gestures.down(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp, e.pointerType === 'touch');
-    canvas.setPointerCapture(e.pointerId); canvas.focus({ preventScroll: true });
-  };
+  const cancelGestures = () => { const ids = [...gestures.pointers.keys()]; gestures.cancel(); ids.forEach(id => { if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id); }); };
+  const onDown = (e: PointerEvent) => { if (paused || e.button > 0) return; gestures.down(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp, e.pointerType === 'touch'); canvas.setPointerCapture(e.pointerId); canvas.focus({ preventScroll: true }); };
   const onMove = (e: PointerEvent) => {
     if (paused) return;
-    if (gestures.active) { gestures.move(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp); return; }
-    if (e.pointerType === 'touch') return;
-    mouse.set(e.clientX / width * 2 - 1, -(e.clientY / height * 2 - 1));
-    const hit = hitAt(e.clientX, e.clientY); hoverId = hit?.object.userData.relic ?? null;
-    hovered = hoverId ? (hoverId === 'pearl' && !opened.has('pearl') ? 'Open the shell' : hoverId === 'key' && !opened.has('key') ? 'Part the fronds' : RELICS.find((r) => r.id === hoverId)!.name) : hit ? 'Drift with me' : null;
-    canvas.style.cursor = hit ? 'pointer' : 'grab';
+    if (gestures.active) { gestures.move(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp); waterPoint(e.clientX, e.clientY, 1.4); return; }
+    if (e.pointerType === 'touch' || e.timeStamp - lastHover < 45) return; lastHover = e.timeStamp;
+    const picked = hitAt(e.clientX, e.clientY); waterPoint(e.clientX, e.clientY, 0.85, picked); react(picked); hoverId = picked?.id ?? null;
+    hovered = hoverId ? (hoverId === 'pearl' && !opened.has('pearl') ? 'Open the shell' : hoverId === 'key' && !opened.has('key') ? 'Part the fronds' : RELICS.find(r => r.id === hoverId)!.name) : picked?.scenery?.name ?? (picked ? 'Make a little current' : null);
+    canvas.style.cursor = picked ? 'pointer' : 'grab';
   };
-  const onUp = (e: PointerEvent) => {
-    gestures.up(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp, e.type !== 'pointerup');
-    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
-  };
-  const onLeave = () => { hovered = null; hoverId = null; mouse.set(0, 0); };
+  const onUp = (e: PointerEvent) => { gestures.up(e.pointerId, { x: e.clientX, y: e.clientY }, e.timeStamp, e.type !== 'pointerup'); if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId); };
+  const onLeave = () => { hovered = null; hoverId = null; };
+  const onWheel = (e: WheelEvent) => { if (paused || e.ctrlKey) return; e.preventDefault(); const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? height : 1; if (e.shiftKey) rig.orbit(e.deltaY * unit, width); else { goTo(target + T.MathUtils.clamp(e.deltaY * unit, -280, 280) * 0.015); rig.orbit(e.deltaX * unit, width); } };
   const onKey = (e: KeyboardEvent) => {
-    if (paused || e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement || e.target instanceof HTMLDialogElement) return;
+    if (paused || e.target instanceof HTMLInputElement || e.target instanceof HTMLButtonElement || e.target instanceof HTMLDialogElement || e.target instanceof HTMLAnchorElement || (e.target as HTMLElement)?.tagName === 'SUMMARY') return;
     if (e.key === '0' || e.key === 'Escape') { resetView(); return; }
-    const destination: Record<string, number> = { ArrowDown: target + 3, ArrowUp: target - 3, PageDown: target + viewHeight * 0.8, PageUp: target - viewHeight * 0.8, Home: 0, End: MAX_DEPTH, ' ': target + viewHeight * 0.8 };
-    if (e.key in destination) { e.preventDefault(); goTo(destination[e.key]); }
+    if (['ArrowLeft', 'ArrowRight', 'q', 'e'].includes(e.key)) { e.preventDefault(); rig.targetYaw += ['ArrowLeft', 'q'].includes(e.key) ? 0.18 : -0.18; return; }
+    const destinations: Record<string, number> = { ArrowDown: target + 3, ArrowUp: target - 3, PageDown: target + rig.height * 0.8, PageUp: target - rig.height * 0.8, Home: 0, End: MAX_DEPTH, ' ': target + rig.height * 0.8 };
+    if (e.key in destinations) { e.preventDefault(); goTo(destinations[e.key]); }
   };
-  const resize = () => {
-    const resized = width !== canvas.clientWidth || height !== canvas.clientHeight;
-    width = canvas.clientWidth; height = canvas.clientHeight;
-    if (!width || !height) return;
-    const viewWidth = (width < 700 ? 13 : width < 1000 ? 21 : 30) / zoom;
-    viewHeight = viewWidth * height / width;
-    camera.left = -viewWidth / 2; camera.right = viewWidth / 2; camera.top = viewHeight / 2; camera.bottom = -viewHeight / 2; camera.updateProjectionMatrix();
-    backdrop.scale.set(viewWidth, viewHeight, 1);
-    if (resized) renderer.setSize(width, height, false);
-  };
-  const observer = new ResizeObserver(resize); observer.observe(canvas); resize();
+  function resize() {
+    const changed = width !== canvas.clientWidth || height !== canvas.clientHeight;
+    width = canvas.clientWidth; height = canvas.clientHeight; if (!width || !height) return;
+    rig.resize(width, height); const backHeight = 2 * Math.tan(camera.fov * Math.PI / 360) * 100; backdrop.scale.set(backHeight * camera.aspect, backHeight, 1);
+    if (changed) renderer.setSize(width, height, false);
+  }
+  const observer = new ResizeObserver(resize); observer.observe(canvas); resize(); rig.update(0, 0, true); schools.update(0, 0, 0, rig.height, options.reduced, found.size === RELICS.length);
 
   function frame(now: number) {
     if (disposed) return;
     if (last && now - last < 1000 / 60 - 1) { raf = requestAnimationFrame(frame); return; }
     const dt = Math.min((now - (last || now)) / 1000, 0.05); last = now;
     if (!paused) {
-      if (!gestures.active && Math.abs(diveVelocity) > 0.03) {
-        target = T.MathUtils.clamp(target + diveVelocity * dt, 0, MAX_DEPTH);
-        diveVelocity *= Math.exp(-4.5 * dt);
-        if (target === 0 || target === MAX_DEPTH) diveVelocity = 0;
+      if (!gestures.active && Math.abs(diveVelocity) > 0.03) { target = T.MathUtils.clamp(target + diveVelocity * dt, 0, MAX_DEPTH); diveVelocity *= Math.exp(-4.5 * dt); if (target === 0 || target === MAX_DEPTH) diveVelocity = 0; }
+      time += dt; current = approach(current, target, dt, options.reduced || gestures.active); rig.update(current, dt, options.reduced || gestures.active);
+      water.time.value = options.reduced ? 0 : time; water.strength.value *= Math.exp(-dt * 2.4); background.uniforms.uDepth.value = current / MAX_DEPTH;
+      (scene.fog as T.FogExp2).color.set('#12454d').lerp(deepFog, current / MAX_DEPTH);
+      const complete = found.size === RELICS.length;
+      for (const prop of habitats.scenery) {
+        prop.root.visible = Math.abs(prop.home.y + current) < rig.height * 0.75 + 13;
+        if (!prop.root.visible) continue;
+        prop.pulse *= Math.exp(-dt * 3); prop.root.position.copy(prop.home); prop.root.rotation.copy(prop.rotation);
+        const motion = prop.pulse * (options.reduced ? 0.2 : Math.sin(time * (prop.kind === 'rock' ? 16 : 5)));
+        prop.root.rotation.z += motion * (prop.kind === 'rock' ? 0.015 : 0.1);
+        if (prop.kind === 'rock') prop.root.position.y += Math.abs(motion) * 0.025;
       }
-      time += dt; current = approach(current, target, dt, options.reduced || gestures.active);
-      camera.position.y = -current;
-      camera.position.x += (panX + (options.reduced || gestures.active ? 0 : mouse.x * 0.18) - camera.position.x) * (gestures.active || options.reduced ? 1 : Math.min(1, dt * 8));
-      background.uniforms.uTime.value = options.reduced ? 0 : time;
-      background.uniforms.uDepth.value = current / MAX_DEPTH;
-      (plankton.material as T.ShaderMaterial).uniforms.uTime.value = options.reduced ? 0 : time;
-      (scene.fog as T.FogExp2).color.set('#103948').lerp(deepFog, current / MAX_DEPTH);
-      for (const m of movers) {
-        if (Math.abs(m.baseY + current) > viewHeight + 8 || m.group === creature || options.reduced) continue;
-        if (m.kind === 'kelp') m.group.rotation.z = Math.sin(time * 0.5 + m.phase) * 0.08 + mouse.x * 0.025;
-        else { m.group.position.x += (m.group.userData.homeX - m.group.position.x) * dt * 0.7; m.group.position.y += (m.baseY + Math.sin(time * 0.5 + m.phase) * 0.6 - m.group.position.y) * dt * 2; m.group.rotation.z = Math.sin(time * 0.6 + m.phase) * 0.08; m.group.scale.y = m.group.userData.restScale * (0.94 + Math.sin(time * 1.8 + m.phase) * 0.09); }
+      for (const c of creatures) {
+        c.root.visible = (c !== whale || complete) && Math.abs(c.home.y + current) < rig.height * 0.7 + 6;
+        if (!c.root.visible) continue; c.pulse *= Math.exp(-dt * 2.5);
+        if (!options.reduced) c.mixer?.update(dt * (1 + c.pulse));
+        if (c.root !== dragged) { temp.copy(c.home); if (!options.reduced) { temp.x += Math.sin(time * 0.23 + c.phase) * (c.manta ? 2.5 : 0.4); temp.y += Math.sin(time * 0.55 + c.phase) * 0.45; temp.z += Math.cos(time * 0.23 + c.phase) * (c.manta ? 2 : 0.3); } c.root.position.lerp(temp, Math.min(1, dt * 2.5)); }
+        c.root.scale.y = c.scale * (1 + (options.reduced ? 0 : Math.sin(time * 1.8 + c.phase) * (c.manta ? 0 : 0.055)) + c.pulse * 0.07);
       }
-      shell.lid.rotation.x += ((opened.has('pearl') || found.has('pearl') ? -1.3 : -0.08) - shell.lid.rotation.x) * Math.min(1, dt * 4);
-      keyCover.children.forEach((leaf, i) => { leaf.rotation.z += ((opened.has('key') || found.has('key') ? (i - 2) * 0.45 : (i - 2) * 0.1) - leaf.rotation.z) * Math.min(1, dt * 4); });
-      relics.forEach(({ relic, group, model }) => {
+      shell.lid.rotation.x += ((opened.has('pearl') || found.has('pearl') ? -1.35 : -0.08) - shell.lid.rotation.x) * Math.min(1, dt * 5);
+      keyCover.children.forEach((leaf, i) => { leaf.rotation.z += ((opened.has('key') || found.has('key') ? (i - 1) * 0.75 : (i - 1) * 0.08) - leaf.rotation.z) * Math.min(1, dt * 5); });
+      relics.forEach(({ relic, group, model }, i) => {
         const at = collectTime.get(relic.id);
-        if (at !== undefined) { const elapsed = time - at; group.scale.setScalar(Math.max(0, 1 - elapsed * 1.6)); group.position.y = -relic.depth + elapsed * 1.8; group.rotation.y = elapsed * 5; }
+        if (at !== undefined) { const elapsed = time - at; group.visible = elapsed < 0.8; group.scale.setScalar(Math.max(0, 1 - elapsed * 1.6)); group.position.y = -locations[i].depth + elapsed * 1.8; group.rotation.y = elapsed * 5; }
         else group.visible = !found.has(relic.id);
-        if (!found.has(relic.id)) {
-          model.visible = relic.id !== 'pearl' || opened.has('pearl');
-          model.position.y = options.reduced ? 0 : Math.sin(time * 1.2 + relic.depth) * 0.08;
-          const desired = hoverId === relic.id ? 1.13 : 1; model.scale.lerp(v.setScalar(desired), Math.min(1, dt * 6));
-        }
+        if (!found.has(relic.id)) { model.visible = relic.id !== 'pearl' || opened.has('pearl'); model.position.y = options.reduced ? 0 : Math.sin(time * 1.2 + relic.depth) * 0.08; model.scale.lerp(temp.setScalar(hoverId === relic.id ? 1.14 : 1), Math.min(1, dt * 6)); }
       });
-      for (const fish of swimmers) {
-        fish.root.visible = Math.abs(fish.baseY + current) < viewHeight * 0.65 + 3;
-        if (!fish.root.visible || options.reduced) continue;
-        fish.mixer.update(dt);
-        fish.root.position.x = ((fish.baseX + time * 0.45 * fish.direction + 600) % 18) - 9;
-        fish.root.position.y = fish.baseY + Math.sin(time * 0.4 + fish.phase) * 0.35;
-        fish.root.rotation.z = Math.sin(time * 0.5 + fish.phase) * 0.035;
-      }
-      starwhale.visible = found.size === RELICS.length && Math.abs(current - 115) < viewHeight;
-      if (starwhale.visible) {
-        const t = options.reduced ? 0 : time;
-        if (!options.reduced) whaleModel.mixer.update(dt);
-        starwhale.position.set(Math.sin(t * 0.15) * 2, -115 + Math.sin(t * 0.35) * 0.6, 0); starwhale.rotation.z = Math.sin(t * 0.3) * 0.05;
-      }
-      altar.rotation.z = options.reduced ? 0 : time * 0.08;
+      schools.update(time, dt, current, rig.height, options.reduced, complete); effects.update(dt, current);
+      altar.rotation.y += options.reduced ? 0 : Math.sin(time * 0.18) * 0.25;
+      if (complete && celebrationWave < 3 && time - celebratedAt > celebrationWave * 1.6 && time - celebratedAt < 6) { effects.burst(starwhale.position, true, false, options.reduced); celebrationWave++; }
       if (time - reportAt > 0.1) {
         reportAt = time;
-        const state = { depth: Math.round(current * 10) / 10, zoom: Math.round(zoom * 100) / 100, nearby: RELICS.filter((r) => !found.has(r.id) && Math.abs(r.depth - current) < viewHeight * 0.37).map((r) => r.id), opened: [...opened], hovered, complete: found.size === RELICS.length };
-        const key = JSON.stringify(state);
-        if (key !== lastReport) { lastReport = key; options.onState(state); }
+        const state: DiveState = { depth: Math.round(current * 10) / 10, zoom: Math.round(rig.zoom * 100) / 100, angle: Math.round(rig.yaw * 180 / Math.PI), fishCount: SCHOOL_FISH_COUNT + 3, nearby: RELICS.filter(r => !found.has(r.id) && Math.abs(r.depth - current) < rig.height * 0.37).map(r => r.id), opened: [...opened], hovered, complete };
+        const key = JSON.stringify(state); if (key !== lastReport) { lastReport = key; options.onState(state); }
       }
     }
     renderer.render(scene, camera); raf = requestAnimationFrame(frame);
   }
   function visibility() { cancelGestures(); cancelAnimationFrame(raf); last = 0; if (!document.hidden && !disposed && !paused) raf = requestAnimationFrame(frame); }
   const contextLost = (event: Event) => { event.preventDefault(); cancelAnimationFrame(raf); options.onError(); };
-  canvas.addEventListener('wheel', onWheel, { passive: false }); canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove);
-  canvas.addEventListener('pointerup', onUp); canvas.addEventListener('pointercancel', onUp); canvas.addEventListener('lostpointercapture', onUp); canvas.addEventListener('pointerleave', onLeave);
-  canvas.addEventListener('webglcontextlost', contextLost); window.addEventListener('keydown', onKey); window.addEventListener('blur', cancelGestures); document.addEventListener('visibilitychange', visibility);
-  raf = requestAnimationFrame(frame);
-  return { goTo, resetView, activate, setPaused(value) { paused = value; visibility(); }, dispose() {
+  canvas.addEventListener('wheel', onWheel, { passive: false }); canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove); canvas.addEventListener('pointerup', onUp); canvas.addEventListener('pointercancel', onUp); canvas.addEventListener('lostpointercapture', onUp); canvas.addEventListener('pointerleave', onLeave); canvas.addEventListener('webglcontextlost', contextLost);
+  window.addEventListener('keydown', onKey); window.addEventListener('blur', cancelGestures); document.addEventListener('visibilitychange', visibility); raf = requestAnimationFrame(frame);
+  return { goTo, resetView, activate, setPaused(value) { paused = value; visibility(); }, reset(seed) {
+    cancelGestures(); found.clear(); opened.clear(); collectTime.clear(); locations = discoveryLocations(seed); celebratedAt = -100; celebrationWave = 0; hoverId = null; hovered = null;
+    habitats.scenery.forEach(p => { p.pulse = 0; }); creatures.forEach(c => { c.root.position.copy(c.home); c.pulse = 0; }); schools.reset(); effects.reset(); water.strength.value = 0;
+    placeDiscoveries(); shell.lid.rotation.x = -0.08; keyCover.children.forEach((leaf, i) => { leaf.rotation.z = (i - 1) * 0.08; }); current = 0; goTo(0); resetView(); rig.update(0, 0, true); reportAt = -1;
+  }, dispose() {
     disposed = true; cancelGestures(); cancelAnimationFrame(raf); observer.disconnect();
     canvas.removeEventListener('wheel', onWheel); canvas.removeEventListener('pointerdown', onDown); canvas.removeEventListener('pointermove', onMove); canvas.removeEventListener('pointerup', onUp); canvas.removeEventListener('pointercancel', onUp); canvas.removeEventListener('lostpointercapture', onUp); canvas.removeEventListener('pointerleave', onLeave); canvas.removeEventListener('webglcontextlost', contextLost);
     window.removeEventListener('keydown', onKey); window.removeEventListener('blur', cancelGestures); document.removeEventListener('visibilitychange', visibility);
-    [...swimmers, whaleModel, ship].forEach(actor => { actor.mixer.stopAllAction(); actor.mixer.uncacheRoot(actor.mixer.getRoot()); });
-    disposeObject(scene); Object.values(assets).forEach(asset => disposeObject(asset.scene));
-    environmentMap.dispose(); clearMaterials(); renderer.dispose();
+    creatures.forEach(c => { c.mixer?.stopAllAction(); if (c.mixer) c.mixer.uncacheRoot(c.mixer.getRoot()); });
+    disposeObject(scene); Object.values(assets).forEach(a => disposeObject(a.scene)); environment.dispose(); clearMaterials(); renderer.dispose();
   } };
 }
