@@ -13,7 +13,7 @@ test('save data accepts known unique IDs and ignores malformed or foreign values
 
 test('containers must open; objects cannot be collected twice; final fragment requires every other object', () => {
   const found = new Set(); const opened = new Set();
-  for (const id of ['pearl', 'key']) {
+  for (const id of ['pearl', 'key', 'amber', 'rune', 'medallion']) {
     assert.equal(catalog.canCollect(id, found, opened), false);
     opened.add(id); assert.equal(catalog.canCollect(id, found, opened), true);
   }
@@ -24,7 +24,7 @@ test('containers must open; objects cannot be collected twice; final fragment re
   assert.equal(catalog.canCollect('moon', found, opened), true);
   found.add('moon'); assert.equal(catalog.canCollect('moon', found, opened), false);
   const restored = new Set(catalog.readFinds(JSON.stringify([...found])));
-  assert.equal(restored.size, 6);
+  assert.equal(restored.size, catalog.RELICS.length);
   for (const id of restored) assert.equal(catalog.canCollect(id, restored, opened), false);
 });
 

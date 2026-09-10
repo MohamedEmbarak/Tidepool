@@ -1,5 +1,5 @@
 export type Point = { x: number; y: number };
-export type GestureTarget = { kind: 'creature' | 'relic' | 'scenery'; value: unknown };
+export type GestureTarget = { kind: 'creature' | 'relic' | 'scenery'; value: unknown; holdable?: boolean };
 export type GestureCallbacks = {
   hit: (point: Point) => GestureTarget | null;
   start: () => void;
@@ -38,8 +38,8 @@ export class DiveGestures {
     if (this.pointers.size > 1) { this.multiple = true; this.moved = true; this.target = null; return; }
     this.multiple = false; this.moved = false; this.held = false; this.origin = point;
     this.target = this.callbacks.hit(point);
-    if (touch && this.target?.kind === 'relic') {
-      this.timer = setTimeout(() => { this.held = true; if (this.target) this.callbacks.hold(this.target, point); }, 420);
+    if (this.target && (this.target.holdable || touch && this.target.kind === 'relic')) {
+      this.timer = setTimeout(() => { this.held = true; if (this.target) this.callbacks.hold(this.target, point); }, this.target.holdable ? 650 : 420);
     }
   }
   move(id: number, point: Point, now: number) {

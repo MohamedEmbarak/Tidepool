@@ -67,3 +67,14 @@ test('double tapping open water resets the view; a cancelled gesture clears tap 
   g.down(1, p(100, 200), 250, true); g.up(1, p(100, 200), 280);
   assert.equal(calls.filter(c => c[0] === 'reset').length, 1);
 });
+
+test('holding a carrier works with mouse and touch, while drag and second-finger changes cancel the hold', () => {
+  for (const touch of [false, true]) {
+    const { gesture: g, calls, timers } = setup({ kind: 'creature', holdable: true, value: 'amber' });
+    g.down(1, p(100, 100), 0, touch); assert.equal(timers.size, 1);
+    [...timers.values()][0](); g.up(1, p(100, 100), 700);
+    assert.equal(calls.filter(c => c[0] === 'hold').length, 1); assert.equal(calls.filter(c => c[0] === 'tap').length, 0);
+    g.down(1, p(100, 100), 800, touch); g.move(1, p(112, 100), 820); assert.equal(timers.size, 0); g.cancel();
+    g.down(1, p(100, 100), 900, touch); g.down(2, p(130, 100), 920, true); assert.equal(timers.size, 0); g.cancel();
+  }
+});

@@ -45,5 +45,5 @@ export function waterEffects(water: Water, ratio: number) {
     geometry.getAttribute('position').needsUpdate = true; geometry.getAttribute('aLife').needsUpdate = true;
   }
   function reset() { life.fill(0); geometry.getAttribute('aLife').needsUpdate = true; }
-  return { root, burst, update, reset };
+  return { root, burst, update, reset, setPixelRatio(value: number) { material.uniforms.uRatio.value = value; } };
 }

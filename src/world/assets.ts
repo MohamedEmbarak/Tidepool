@@ -9,10 +9,11 @@ export type ModelAssets = Record<ModelName, GLTF>;
 export function disposeObject(root: T.Object3D) {
   const geometries = new Set<T.BufferGeometry>(), materials = new Set<T.Material>(), textures = new Set<T.Texture>();
   root.traverse(o => {
-    if (!(o instanceof T.Mesh || o instanceof T.Points)) return;
+    if (!(o instanceof T.Mesh || o instanceof T.Points || o instanceof T.Line)) return;
     geometries.add(o.geometry);
     (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
       materials.add(m); Object.values(m).forEach(value => { if (value instanceof T.Texture) textures.add(value); });
+      if (m instanceof T.ShaderMaterial) Object.values(m.uniforms).forEach(uniform => { if (uniform.value instanceof T.Texture) textures.add(uniform.value); });
     });
     if (o instanceof T.SkinnedMesh) o.skeleton.dispose();
     if (o instanceof T.InstancedMesh) o.dispose();

@@ -91,7 +91,7 @@ h1,h2,h3 { font-family:var(--serif); font-weight:400; }
 .restart-expedition p { color:var(--muted); font-size:11px; line-height:1.8; }
 .restart-expedition button { padding:12px 17px; border-radius:24px; font-size:11px; }
 .completion-card { position:absolute; z-index:6; right:40px; bottom:125px; width:355px; padding:25px; border:1px solid #e5d7a365; border-radius:18px; background:linear-gradient(145deg,#163b43f2,#132035f5); box-shadow:0 12px 70px #00121d66; animation:caption-in .8s ease both; }
-.completion-seal { display:flex; align-items:center; gap:8px; margin-bottom:15px; color:#e2d5a8; }
+.completion-seal { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-bottom:15px; color:#e2d5a8; }
 .completion-seal .relic-icon { width:35px; height:35px; }
 .completion-card .eyebrow { color:#dcd2a8; margin-bottom:8px; font-size:8px; }
 .completion-card h2 { font-size:31px; line-height:1.12; margin-bottom:12px; }
