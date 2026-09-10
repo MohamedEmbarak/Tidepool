@@ -61,3 +61,5 @@ Tests cover deterministic layouts and safe placement bounds, dense school reacti
 Existing expedition seeds keep the original hiding places. The five earlier prerequisite finds remain saved when upgrading a completed six-item expedition; the final moon is sealed again until the three new treasures have been discovered.
 
 Browser memory checks instrument GPU allocations and collect heap measurements after warmup, repeated reveal/reset cycles, and full retry. A retry replaces the canvas and releases its old WebGL context; ordinary expedition resets preserve the existing canvas and buffers.
+
+Collecting the cratered moon turns the ocean into night and unlocks a persistent day/night control. The reward and chosen lighting are stored separately from the journal in `tidepool.moon-reward.v1`; resetting the expedition preserves both. Existing completed journals unlock the reward on their next visit. Night reuses the ocean's plankton and adds one fixed 128-mote buffer with two shared, shadowless lights, without textures or post-processing buffers. Reduced motion makes the lighting change immediate and holds the motes still.

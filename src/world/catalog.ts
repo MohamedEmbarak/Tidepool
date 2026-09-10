@@ -27,7 +27,7 @@ export const RELICS = [
   { id: 'medallion', name: 'The navigator’s promise', type: 'Locked-away memory', depth: 80, color: '#efc886', clue: 'An old chest drifts below the garden. Lift its lid and look inside.', story: 'Salt has taken the name from the lid. Inside, a bronze medallion still carries a map of the stars.' },
   { id: 'rune', name: 'The tide sigil', type: 'Sealed archive', depth: 94, color: '#a8e8ed', clue: 'Three touches will fracture the arch’s seal. Its stones hide a luminous tablet.', story: 'The stone breaks along a line drawn centuries ago. A single letter remains, warm and bright in the cold water.' },
   { id: 'lantern', name: 'A borrowed star', type: 'Abyssal light', depth: 98, color: '#9fd9ff', clue: 'A blue ember hangs beneath the stone arch.', story: 'There is no flame inside. A tiny constellation has made a home in the glass, and every point of light is moving.' },
-  { id: 'moon', name: 'The missing moon', type: 'Final fragment', depth: 118, color: '#d7bdff', clue: 'Each discovery breaks one rune seal. Find every other memory to free the moon.', story: 'The last piece of a song older than the wreck, the forest, and the reef. The ocean remembers who was singing.' },
+  { id: 'moon', name: 'The missing moon', type: 'Moonlight keeper', depth: 118, color: '#d7bdff', clue: 'Each discovery breaks one rune seal. Find every other memory to free the moon.', story: 'A small moon, lost beneath the waves. In your hands it wakes the living lights. Day and night are yours to choose, even when a new expedition begins.' },
 ] as const;
 
 export type RelicId = (typeof RELICS)[number]['id'];

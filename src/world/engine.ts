@@ -11,11 +11,12 @@ import { createSeals } from './seals';
 import { treasureChest, breakableArch } from './containers';
 import { DiscoveryLocks, type DiscoveryAction } from './discoveries';
 import { renderPixelRatio } from './resources';
+import { nightSwarms } from './night';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 export type DiveState = { depth: number; zoom: number; angle: number; fishCount: number; seals: number; archHits: number; nearby: RelicId[]; opened: RelicId[]; hovered: string | null; complete: boolean };
-export type DiveEngine = { goTo: (depth: number) => void; resetView: () => void; reset: (seed: number) => void; activate: (id: RelicId) => void; setPaused: (paused: boolean) => void; dispose: () => void };
-type Options = { found: RelicId[]; seed: number; reduced: boolean; onState: (state: DiveState) => void; onCollect: (id: RelicId) => void; onHint: (hint: string) => void; onError: () => void };
+export type DiveEngine = { goTo: (depth: number) => void; resetView: () => void; reset: (seed: number) => void; activate: (id: RelicId) => void; setNight: (night: boolean) => void; setPaused: (paused: boolean) => void; dispose: () => void };
+type Options = { found: RelicId[]; seed: number; reduced: boolean; night?: boolean; onState: (state: DiveState) => void; onCollect: (id: RelicId) => void; onHint: (hint: string) => void; onError: () => void };
 type Pick = { kind: 'relic' | 'fish' | 'creature' | 'scenery'; point: T.Vector3; id?: RelicId; fish?: SchoolFish; object?: T.Object3D; scenery?: Scenery };
 type Creature = { root: T.Object3D; home: T.Vector3; phase: number; scale: number; pulse: number; mixer?: T.AnimationMixer; manta?: boolean };
 
@@ -35,22 +36,28 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
     try { environment = pmrem.fromScene(room, 0.04); } finally { room.dispose(); pmrem.dispose(); }
     scene.environment = environment.texture;
     const rig = new DiveCamera(), camera = rig.camera; scene.add(camera);
-    scene.add(new T.HemisphereLight('#bce6d5', '#203244', 1.7));
+    const ambient = new T.HemisphereLight('#bce6d5', '#203244', 1.7); scene.add(ambient);
     const sun = new T.DirectionalLight('#ffeed0', 2.8); sun.position.set(-7, 18, 9); scene.add(sun);
     const fill = new T.PointLight('#96dadd', 45, 65, 1.5); fill.position.set(3, 4, 8); camera.add(fill);
     const water: Water = { time: { value: 0 }, point: { value: new T.Vector3(100, 100, 100) }, strength: { value: 0 } };
+    let nightTarget = options.night ? 1 : 0;
+    const night = { value: nightTarget };
     const background = new T.ShaderMaterial({ depthTest: false, depthWrite: false,
-      uniforms: { uTime: water.time, uDepth: { value: 0 }, uTouch: water.strength },
+      uniforms: { uTime: water.time, uDepth: { value: 0 }, uTouch: water.strength, uNight: night },
       vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-      fragmentShader: `varying vec2 vUv;uniform float uTime;uniform float uDepth;uniform float uTouch;
+      fragmentShader: `varying vec2 vUv;uniform float uTime;uniform float uDepth;uniform float uTouch;uniform float uNight;
         void main(){vec3 surface=mix(vec3(.007,.085,.12),vec3(.12,.43,.41),vUv.y);vec3 deep=mix(vec3(.006,.012,.03),vec3(.035,.09,.15),vUv.y);
         vec3 color=mix(surface,deep,smoothstep(0.,1.,uDepth));float shafts=pow(max(0.,sin(vUv.x*24.+vUv.y*4.+sin(uTime*.2)*.25)),20.);
-        color+=vec3(.17,.26,.19)*shafts*pow(vUv.y,2.)*(.28+uTouch*.02)*(1.-uDepth);color*=.84+.16*(1.-length(vUv-.5));gl_FragColor=vec4(color,1.);}` });
+        color+=vec3(.17,.26,.19)*shafts*pow(vUv.y,2.)*(.28+uTouch*.02)*(1.-uDepth);
+        vec3 midnight=mix(vec3(.003,.006,.023),vec3(.022,.045,.105),vUv.y)*(1.-uDepth*.45);
+        midnight+=vec3(.014,.025,.055)*exp(-length((vUv-vec2(.7,.95))*vec2(2.,1.))*4.);
+        color=mix(color,midnight,uNight);color*=.84+.16*(1.-length(vUv-.5));gl_FragColor=vec4(color,1.);}` });
     const backdrop = new T.Mesh(new T.PlaneGeometry(1, 1), background); backdrop.position.z = -100; backdrop.renderOrder = -100; camera.add(backdrop);
     const world = new T.Group(); scene.add(world);
     const habitats = buildHabitats(water); world.add(habitats.root);
     const schools = createSchools(assets, water); world.add(schools.root);
     const effects = waterEffects(water, ratio); world.add(effects.root);
+    const swarms = nightSwarms(ratio); world.add(swarms.root);
     const targets: T.Object3D[] = [...schools.targets], creatures: Creature[] = [];
     const found = new Set(options.found), locks = new DiscoveryLocks(found), opened = locks.opened, collectTime = new Map<RelicId, number>();
     const seals = createSeals(found); world.add(seals.root);
@@ -60,7 +67,8 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
     let raf = 0, paused = false, disposed = false, hovered: string | null = null, hoverId: RelicId | null = null, diveVelocity = 0;
     let dragged: T.Object3D | null = null, heldCarrier = false, celebratedAt = -100, celebrationWave = 0;
     const ray = new T.Raycaster(), pointer = new T.Vector2(), plane = new T.Plane(), direction = new T.Vector3(), delta = new T.Vector3(), point = new T.Vector3();
-    const temp = new T.Vector3(), deepFog = new T.Color('#091427');
+    const temp = new T.Vector3(), deepFog = new T.Color('#091427'), nightFog = new T.Color('#050b24');
+    const daySun = new T.Color('#ffeed0'), moonlight = new T.Color('#a1baff'), dayFill = new T.Color('#96dadd'), nightFill = new T.Color('#75bfe8');
     const pickCandidates: T.Object3D[] = [], pickHits: T.Intersection[] = [];
     let lastReport = '';
 
@@ -117,11 +125,11 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
     const snow = new Float32Array(1500 * 3), random = randomSequence(6001);
     for (let i = 0; i < 1500; i++) { snow[i * 3] = (random() - 0.5) * 35; snow[i * 3 + 1] = 12 - random() * 150; snow[i * 3 + 2] = (random() - 0.5) * 32; }
     const snowGeometry = new T.BufferGeometry(); snowGeometry.setAttribute('position', new T.BufferAttribute(snow, 3));
-    const plankton = new T.Points(snowGeometry, new T.ShaderMaterial({ transparent: true, depthWrite: false,
-      uniforms: { uTime: water.time, uTouch: water.point, uStrength: water.strength, uRatio: { value: ratio } },
-      vertexShader: `uniform float uTime;uniform vec3 uTouch;uniform float uStrength;uniform float uRatio;varying float vAlpha;
-        void main(){vec3 p=position;p.x+=sin(uTime*.2+p.y)*.18;vec3 d=p-uTouch;float dist=length(d);p+=d/max(.1,dist)*exp(-dist*.5)*uStrength*.7;vec4 mv=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;gl_PointSize=clamp(55./max(8.,-mv.z),1.,3.)*uRatio;vAlpha=.15+.35*(.5+.5*sin(p.y*7.+uTime*.7));}`,
-      fragmentShader: 'varying float vAlpha;void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;gl_FragColor=vec4(.63,.89,.88,vAlpha*(1.-d*2.));}' })); world.add(plankton);
+    const plankton = new T.Points(snowGeometry, new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending,
+      uniforms: { uTime: water.time, uTouch: water.point, uStrength: water.strength, uRatio: { value: ratio }, uNight: night },
+      vertexShader: `uniform float uTime;uniform vec3 uTouch;uniform float uStrength;uniform float uRatio;uniform float uNight;varying float vAlpha;
+        void main(){vec3 p=position;p.x+=sin(uTime*.2+p.y)*.18;vec3 d=p-uTouch;float dist=length(d);p+=d/max(.1,dist)*exp(-dist*.5)*uStrength*.7;vec4 mv=modelViewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;gl_PointSize=clamp(55./max(8.,-mv.z),1.,3.)*uRatio*(1.+uNight);vAlpha=(.15+.35*(.5+.5*sin(p.y*7.+uTime*.7)))*(1.+uNight);}`,
+      fragmentShader: 'varying float vAlpha;void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;gl_FragColor=vec4(.45,.89,.88,vAlpha*(1.-d*2.));}' })); world.add(plankton);
 
     function goTo(depth: number) { diveVelocity = 0; target = T.MathUtils.clamp(depth, 0, MAX_DEPTH); }
     function resetView() { rig.reset(); diveVelocity = 0; resize(); reportAt = -1; }
@@ -146,7 +154,7 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
       if (id === 'moon' && seals.progress.some(value => value < 1)) { options.onHint('The final seal is dissolving…'); return; }
       found.add(id); collectTime.set(id, time); effects.burst(model.group.position, id === 'moon', false, options.reduced); schools.scatter(model.group.position, id === 'moon' ? 8 : 4);
       if (seals.breakSeal(id)) effects.burst(seals.root.position, false, false, options.reduced);
-      if (id === 'moon') { celebratedAt = time; celebrationWave = 1; }
+      if (id === 'moon') { celebratedAt = time; celebrationWave = 1; nightTarget = 1; }
       options.onCollect(id); reportAt = -1;
     }
     function setRay(x: number, y: number) {
@@ -221,7 +229,7 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
       const changed = width !== canvas.clientWidth || height !== canvas.clientHeight;
       width = canvas.clientWidth; height = canvas.clientHeight; if (!width || !height) return;
       const nextRatio = renderPixelRatio(width, height, devicePixelRatio, memory);
-      if (ratio !== nextRatio) { ratio = nextRatio; renderer.setPixelRatio(ratio); effects.setPixelRatio(ratio); plankton.material.uniforms.uRatio.value = ratio; }
+      if (ratio !== nextRatio) { ratio = nextRatio; renderer.setPixelRatio(ratio); effects.setPixelRatio(ratio); swarms.setPixelRatio(ratio); plankton.material.uniforms.uRatio.value = ratio; }
       rig.resize(width, height); const backHeight = 2 * Math.tan(camera.fov * Math.PI / 360) * 100; backdrop.scale.set(backHeight * camera.aspect, backHeight, 1);
       if (changed) renderer.setSize(width, height, false);
     }
@@ -235,7 +243,12 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
         if (!gestures.active && Math.abs(diveVelocity) > 0.03) { target = T.MathUtils.clamp(target + diveVelocity * dt, 0, MAX_DEPTH); diveVelocity *= Math.exp(-4.5 * dt); if (target === 0 || target === MAX_DEPTH) diveVelocity = 0; }
         time += dt; current = approach(current, target, dt, options.reduced || gestures.active); rig.update(current, dt, options.reduced || gestures.active);
         water.time.value = options.reduced ? 0 : time; water.strength.value *= Math.exp(-dt * 2.4); background.uniforms.uDepth.value = current / MAX_DEPTH;
-        (scene.fog as T.FogExp2).color.set('#12454d').lerp(deepFog, current / MAX_DEPTH);
+        night.value += (nightTarget - night.value) * (options.reduced ? 1 : 1 - Math.exp(-dt * 1.3));
+        ambient.intensity = T.MathUtils.lerp(1.7, 0.55, night.value);
+        sun.intensity = T.MathUtils.lerp(2.8, 0.65, night.value); sun.color.copy(daySun).lerp(moonlight, night.value);
+        fill.intensity = T.MathUtils.lerp(45, 23, night.value); fill.color.copy(dayFill).lerp(nightFill, night.value);
+        scene.environmentIntensity = T.MathUtils.lerp(1, 0.18, night.value);
+        (scene.fog as T.FogExp2).color.set('#12454d').lerp(deepFog, current / MAX_DEPTH).lerp(nightFog, night.value);
         (scene.fog as T.FogExp2).density = 0.018 + current / MAX_DEPTH * 0.012;
         const complete = found.size === RELICS.length;
         for (const prop of habitats.scenery) {
@@ -280,7 +293,8 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
           }
           if (!found.has(relic.id)) { model.visible = relic.id !== 'pearl' || opened.has('pearl'); model.position.y = options.reduced ? 0 : Math.sin(time * 1.2 + relic.depth) * 0.08; model.scale.lerp(temp.setScalar(hoverId === relic.id ? 1.14 : 1), Math.min(1, dt * 6)); }
         });
-        schools.update(time, dt, current, rig.height, options.reduced, complete); effects.update(dt, current);
+        schools.update(time, dt, current, rig.height, options.reduced, complete); effects.update(dt, current, night.value);
+        swarms.update(time, night.value, rig.focus, options.reduced);
         seals.root.visible = !found.has('moon') && Math.abs(current - 118) < rig.height;
         seals.update(dt, time, camera.quaternion, options.reduced);
         if (complete && celebrationWave < 3 && time - celebratedAt > celebrationWave * 1.6 && time - celebratedAt < 6) { effects.burst(starwhale.position, true, false, options.reduced); celebrationWave++; }
@@ -296,7 +310,7 @@ export async function createDive(canvas: HTMLCanvasElement, options: Options, si
     const contextLost = (event: Event) => { event.preventDefault(); cancelAnimationFrame(raf); options.onError(); };
     canvas.addEventListener('wheel', onWheel, { passive: false }); canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove); canvas.addEventListener('pointerup', onUp); canvas.addEventListener('pointercancel', onUp); canvas.addEventListener('lostpointercapture', onUp); canvas.addEventListener('pointerleave', onLeave); canvas.addEventListener('webglcontextlost', contextLost);
     window.addEventListener('keydown', onKey); window.addEventListener('blur', cancelGestures); document.addEventListener('visibilitychange', visibility); raf = requestAnimationFrame(frame);
-    return { goTo, resetView, activate, setPaused(value) { paused = value; visibility(); }, reset(seed) {
+    return { goTo, resetView, activate, setNight(value) { nightTarget = value ? 1 : 0; }, setPaused(value) { paused = value; visibility(); }, reset(seed) {
       cancelGestures(); found.clear(); locks.reset(); collectTime.clear(); revealTime.clear(); locations = discoveryLocations(seed); celebratedAt = -100; celebrationWave = 0; hoverId = null; hovered = null;
       seals.reset(found); chest.reset(); archive.reset(); carrier.root.scale.setScalar(1); carrier.root.rotation.set(0, 0, 0);
       habitats.scenery.forEach(p => { p.pulse = 0; }); creatures.forEach(c => { c.root.position.copy(c.home); c.pulse = 0; }); schools.reset(); effects.reset(); water.strength.value = 0;

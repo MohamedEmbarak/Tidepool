@@ -35,8 +35,8 @@ export function waterEffects(water: Water, ratio: number) {
     const shaft = new T.Mesh(new T.CylinderGeometry(0.1, 1.7, 28, 10, 1, true), shaftMaterial);
     shaft.position.set(Math.cos(i * 2.399) * 8, 3, Math.sin(i * 2.399) * 8 - 3); shaft.rotation.z = -0.17 + i * 0.035; shafts.add(shaft);
   }
-  function update(dt: number, depth: number) {
-    shaftMaterial.uniforms.uDepth.value = Math.min(1, depth / 65); shafts.visible = depth < 65;
+  function update(dt: number, depth: number, night = 0) {
+    shaftMaterial.uniforms.uDepth.value = 1 - (1 - Math.min(1, depth / 65)) * (1 - night); shafts.visible = depth < 65 && night < 0.999;
     for (let i = 0; i < capacity; i++) {
       if (life[i] <= 0) continue; life[i] = Math.max(0, life[i] - dt);
       for (let axis = 0; axis < 3; axis++) positions[i * 3 + axis] += velocities[i * 3 + axis] * dt;

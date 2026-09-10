@@ -9,6 +9,6 @@ export function RelicIcon({ id }: { id: RelicId }) {
     {id === 'amber' && <><path d="m40 17 16 12 3 24-19 13-18-13 3-24z" fill="currentColor" fillOpacity=".25"/><circle cx="40" cy="41" r="9"/><path d="M40 26v6m0 18v6M25 41h6m18 0h6m-26-11 5 5m12 12 5 5m0-22-5 5M34 47l-5 5"/></>}
     {id === 'medallion' && <><circle cx="40" cy="42" r="24"/><circle cx="40" cy="42" r="19"/><circle cx="40" cy="12" r="5"/><path d="m40 26 4 11 12 1-9 8 3 11-10-6-10 6 3-11-9-8 12-1z" fill="currentColor" fillOpacity=".25"/></>}
     {id === 'rune' && <><path d="m26 15 23-4 11 17-5 34-29 5-7-25z" fill="currentColor" fillOpacity=".18"/><path d="m30 55 10-34 11 24M32 37l20-8" strokeWidth="3"/></>}
-    {id === 'moon' && <><ellipse cx="40" cy="40" rx="31" ry="16" transform="rotate(30 40 40)"/><ellipse cx="40" cy="40" rx="31" ry="16" transform="rotate(-40 40 40)"/><path d="m40 22 16 10v17L40 59 24 49V32l16-10zM24 32l16 10 16-10M40 42v17" fill="currentColor" fillOpacity=".24"/></>}
+    {id === 'moon' && <><circle cx="40" cy="40" r="26" fill="currentColor" fillOpacity=".18"/><circle cx="30" cy="31" r="7"/><circle cx="49" cy="46" r="9"/><circle cx="31" cy="53" r="4"/><path d="M45 24a4 4 0 0 1 5 4M22 42l2 1M50 60l3-2"/></>}
   </g></svg>;
 }

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { audio } from '@/lib/audio';
 import { LAYOUT_KEY, MAX_DEPTH, readFinds, readSeed, RELICS, SAVE_KEY, SEAL_IDS, ZONES, type RelicId } from '@/world/catalog';
 import { discoveryActionLabel } from '@/world/discoveries';
+import { MOON_REWARD_KEY, readMoonReward, type MoonReward } from '@/world/moonReward';
 import type { DiveEngine, DiveState } from '@/world/engine';
 import { RelicIcon } from './RelicIcon';
 const INITIAL: DiveState = { depth: 0, zoom: 1, angle: 0, fishCount: 220, seals: SEAL_IDS.length, archHits: 0, nearby: [], opened: [], hovered: null, complete: false };
@@ -19,6 +20,8 @@ export default function Expedition() {
   const collectionRef = useRef<HTMLButtonElement>(null);
   const foundRef = useRef<RelicId[]>([]);
   const seedRef = useRef(0);
+  const rewardRef = useRef<MoonReward>({ unlocked: false, night: false });
+  const [reward, setReward] = useState(rewardRef.current);
   const [celebrating, setCelebrating] = useState(false);
   const [found, setFound] = useState<RelicId[]>([]);
   const [dive, setDive] = useState(INITIAL);
@@ -39,6 +42,10 @@ export default function Expedition() {
     if (messageTimer.current) clearTimeout(messageTimer.current);
     messageTimer.current = setTimeout(() => { setMessage(''); setLatest(null); }, 6000);
   }, []);
+  const saveReward = useCallback((next: MoonReward) => {
+    rewardRef.current = next; setReward(next);
+    try { localStorage.setItem(MOON_REWARD_KEY, JSON.stringify(next)); } catch { setSaved(false); }
+  }, []);
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
@@ -47,6 +54,10 @@ export default function Expedition() {
       seedRef.current = readSeed(localStorage.getItem(LAYOUT_KEY)) ?? freshSeed(null);
       localStorage.setItem(LAYOUT_KEY, String(seedRef.current));
     } catch { seedRef.current = freshSeed(null); setSaved(false); }
+    try {
+      const restored = readMoonReward(localStorage.getItem(MOON_REWARD_KEY), foundRef.current);
+      if (restored.unlocked) saveReward(restored);
+    } catch { if (foundRef.current.includes('moon')) saveReward({ unlocked: true, night: true }); setSaved(false); }
     setCelebrating(foundRef.current.length === RELICS.length);
     setFound(foundRef.current);
     const start = async () => {
@@ -55,15 +66,15 @@ export default function Expedition() {
         const { createDive } = await import('@/world/engine');
         if (!alive || !canvasRef.current) return;
         const engine = await createDive(canvasRef.current, {
-          found: foundRef.current, seed: seedRef.current, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+          found: foundRef.current, seed: seedRef.current, night: rewardRef.current.night, reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
           onState: setDive, onHint: hint => { setLatest(null); announce(hint); }, onError: () => setFailed(true),
           onCollect: (id) => {
             if (foundRef.current.includes(id)) return;
             const next = [...foundRef.current, id]; foundRef.current = next; setFound(next); setLatest(id);
             try { localStorage.setItem(SAVE_KEY, JSON.stringify(next)); } catch { setSaved(false); }
             audio.pluck(0.65, 'rare');
-            if (id === 'moon') setCelebrating(true);
-            announce(id === 'moon' ? 'The song is whole. Look up—the starwhale has returned.' : `${RELICS.find((r) => r.id === id)!.name} · added to your field journal`);
+            if (id === 'moon') { saveReward({ unlocked: true, night: true }); setCelebrating(true); }
+            announce(id === 'moon' ? 'Moonlight unlocked. The night ocean is yours—even on a new expedition.' : `${RELICS.find((r) => r.id === id)!.name} · added to your field journal`);
           },
         }, controller.signal);
         if (!alive) { engine.dispose(); return; }
@@ -74,7 +85,7 @@ export default function Expedition() {
     };
     void start();
     return () => { alive = false; controller.abort(); engineRef.current?.dispose(); engineRef.current = null; if (messageTimer.current) clearTimeout(messageTimer.current); };
-  }, [announce, attempt]);
+  }, [announce, attempt, saveReward]);
   useEffect(() => {
     engineRef.current?.setPaused(journal);
     if (journal) dialogRef.current?.showModal();
@@ -100,21 +111,28 @@ export default function Expedition() {
     if (!engineRef.current) return;
     const seed = freshSeed(seedRef.current); seedRef.current = seed;
     foundRef.current = []; setFound([]); setSelected(null); setLatest(null); setCelebrating(false); setJournal(false);
-    try { localStorage.setItem(SAVE_KEY, '[]'); localStorage.setItem(LAYOUT_KEY, String(seed)); setSaved(true); } catch { setSaved(false); }
+    try { localStorage.setItem(SAVE_KEY, '[]'); localStorage.setItem(LAYOUT_KEY, String(seed)); localStorage.setItem(MOON_REWARD_KEY, JSON.stringify(rewardRef.current)); setSaved(true); } catch { setSaved(false); }
     engineRef.current.reset(seed); setDive(INITIAL); audio.setDepth(0, false);
     announce(`A new expedition. ${RELICS.length} discoveries, ${SEAL_IDS.length} rune seals.`);
+  };
+  const toggleNight = () => {
+    if (!rewardRef.current.unlocked) return;
+    const next = { unlocked: true, night: !rewardRef.current.night };
+    saveReward(next); engineRef.current?.setNight(next.night);
+    setLatest(null); announce(next.night ? 'Moonlight. Follow the living lights.' : 'Daylight. The sun returns to the reef.');
   };
   const zoneIndex = Math.min(3, Math.floor(dive.depth / 30)); const zone = ZONES[zoneIndex];
   const entry = RELICS.find((r) => r.id === selected);
   const jump = (depth: number) => engineRef.current?.goTo(depth);
   const complete = found.length === RELICS.length;
-  return <main className="expedition" data-ready={ready} data-depth={dive.depth} data-zoom={dive.zoom} data-angle={dive.angle} data-fish-count={dive.fishCount} data-seals={dive.seals} data-arch-hits={dive.archHits} data-opened={dive.opened.join(',')}>
+  return <main className="expedition" data-ready={ready} data-light={reward.night ? 'night' : 'day'} data-moon-unlocked={reward.unlocked} data-depth={dive.depth} data-zoom={dive.zoom} data-angle={dive.angle} data-fish-count={dive.fishCount} data-seals={dive.seals} data-arch-hits={dive.archHits} data-opened={dive.opened.join(',')}>
     <canvas key={`world-${attempt}`} ref={canvasRef} className="ocean-canvas" tabIndex={0} aria-label="Tidepool underwater world. Scroll or swipe vertically to dive. Drag horizontally to orbit the 3D scene. Pinch to zoom, two fingers to pan, hold the golden fish to release its treasure, tap the arch three times to break its seal, tap revealed objects to collect. Up and down keys change depth; left and right orbit; 0 centres the view. Tab to explore nearby objects." />
     {!ready && !failed && <div className="loading-world"><span className="loading-orbit"/><p>Finding the current…</p></div>}
     {failed && <div className="world-error"><p className="eyebrow">The current was interrupted</p><h1>Let’s find our way back.</h1><p>The underwater view could not start. Your collected objects are kept on this device.</p><button onClick={() => setAttempt((n) => n + 1)}>Try again</button></div>}
     <header className="expedition-header">
       <a className="wordmark" href="#" onClick={(e) => { e.preventDefault(); jump(0); }} aria-label="Tidepool, return to surface"><svg viewBox="0 0 40 40" fill="none" aria-hidden="true"><circle cx="20" cy="20" r="17"/><path d="M4 20q8-8 16 0t16 0M8 27q6-6 12 0t12 0M20 5v7"/></svg><span>tidepool<span className="brand-subtitle">A small expedition</span></span></a>
       <div className="expedition-tools">
+        {reward.unlocked && <button className="moon-button" disabled={!ready || failed} onClick={toggleNight} aria-label="Night view" aria-pressed={reward.night} title={reward.night ? 'Switch to day · Moon reward' : 'Switch to night · Moon reward'}>{reward.night ? <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11z"/><path d="M18 3v4m-2-2h4"/></svg> : <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></svg>}</button>}
         <button disabled={soundPending} className="sound-button" onClick={() => void toggleSound()} aria-label={sound ? 'Mute sound' : 'Enable sound'} aria-pressed={sound} title={sound ? 'Mute the ocean score' : 'Play the ocean score'}><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z"/>{sound ? <path d="M16 8a6 6 0 010 8m3-11a10 10 0 010 14"/> : <path d="m17 9 5 6m0-6-5 6"/>}</svg></button>
         <button ref={collectionRef} className="journal-button" onClick={() => setJournal(true)} aria-haspopup="dialog"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3h10v4l2 3v9q0 2-2 2H7q-2 0-2-2v-9l2-3V3zM7 7h10"/><path d="m12 11 1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3z"/></svg><span className="journal-label">Field journal</span><span className="journal-count">{String(found.length).padStart(2, '0')}<span> / {String(RELICS.length).padStart(2, '0')}</span></span></button>
         {sound && <label className="music-volume"><span>Ocean score</span><input type="range" min="0" max="100" value={volume} aria-label="Music volume" onChange={e => { const value = Number(e.target.value); setVolume(value); audio.setVolume(value / 100); }}/></label>}
@@ -125,7 +143,7 @@ export default function Expedition() {
     <div className="focus-discoveries" aria-label="Nearby discoveries">{dive.nearby.map((id) => <button key={id} onClick={() => engineRef.current?.activate(id)}>{discoveryActionLabel(id, dive.opened) ?? `Collect ${RELICS.find((r) => r.id === id)!.name}`}</button>)}</div>
     {dive.hovered && !journal && <div className="object-label" aria-hidden="true"><span>◇</span> {dive.hovered}</div>}
     <div className={`find-notice ${message && !celebrating ? 'visible' : ''}`} role="status" aria-live="polite">{latest && <RelicIcon id={latest}/>}<span>{message}</span>{latest && <button onClick={() => { setSelected(latest); setJournal(true); }}>View find <span aria-hidden="true">↗</span></button>}</div>
-    {celebrating && !journal && <section className="completion-card" aria-labelledby="completion-title" aria-live="polite"><div className="completion-seal" aria-hidden="true">{RELICS.map(r => <RelicIcon key={r.id} id={r.id}/>)}</div><p className="eyebrow">{String(RELICS.length).padStart(2, '0')} / {String(RELICS.length).padStart(2, '0')} · Expedition complete</p><h2 id="completion-title">The ocean sings again.</h2><p>You found every memory. The fish gather, the water glows, and an old friend returns.</p><div className="completion-actions"><button onClick={() => setCelebrating(false)}>Keep exploring</button><button onClick={resetExpedition}>Start a new expedition</button></div><small>A new expedition clears your journal and reshuffles the objects.</small></section>}
+    {celebrating && !journal && <section className="completion-card" aria-labelledby="completion-title" aria-live="polite"><div className="completion-seal" aria-hidden="true">{RELICS.map(r => <RelicIcon key={r.id} id={r.id}/>)}</div><p className="eyebrow">{String(RELICS.length).padStart(2, '0')} / {String(RELICS.length).padStart(2, '0')} · Expedition complete</p><h2 id="completion-title">You brought back the moon.</h2><p>The ocean turns to night. Living lights reveal its shapes, and the starwhale returns. Your day/night toggle is now unlocked.</p><div className="completion-actions"><button onClick={() => setCelebrating(false)}>Keep exploring</button><button onClick={resetExpedition}>Start a new expedition</button></div><small>Your moon reward stays unlocked, even when you start again.</small></section>}
     <footer className="dive-console">
       <div className="depth-readout"><span className="eyebrow">Below the surface</span><div><span>{String(Math.round(dive.depth * 10)).padStart(4, '0')}</span><small>m</small></div></div>
       <div className="dive-input"><label htmlFor="depth-range" className="sr-only">Dive depth in metres</label><input id="depth-range" aria-valuetext={`${Math.round(dive.depth * 10)} metres, ${zone.short}`} type="range" min="0" max="1200" step="1" value={Math.round(dive.depth * 10)} onChange={(e) => jump(Number(e.target.value) / 10)}/><p><span className="desktop-instruction">Scroll to dive · drag to orbit</span><span className="touch-instruction">Swipe to dive · sideways to orbit</span></p></div>
@@ -138,9 +156,9 @@ export default function Expedition() {
       <div className="journal-progress"><span>{found.length} of {RELICS.length} discoveries</span><span>{complete ? 'A song, remembered' : 'An unfinished song'}</span></div>
       <div className="relic-grid">{RELICS.map((r, i) => <button key={r.id} className={`relic-slot ${found.includes(r.id) ? 'collected' : ''} ${selected === r.id ? 'selected' : ''}`} style={{ '--relic-color': r.color } as CSSProperties} onClick={() => setSelected(r.id)} aria-pressed={selected === r.id}><span className="slot-number">0{i + 1}</span><RelicIcon id={r.id}/><span>{found.includes(r.id) ? r.name : 'Uncharted'}</span><small>{found.includes(r.id) ? `${r.depth * 10} m · Collected` : `${ZONES[Math.min(3, Math.floor(r.depth / 30))].short} · A trace remains`}</small></button>)}</div>
       {entry ? <div className="journal-detail" style={{ '--relic-color': entry.color } as CSSProperties}><p className="eyebrow">{found.includes(entry.id) ? entry.type : 'A field note'}</p><h3>{found.includes(entry.id) ? entry.name : 'Look a little closer.'}</h3><p>{found.includes(entry.id) ? entry.story : entry.clue}</p><button onClick={() => { setJournal(false); jump(entry.depth); }}>Return to this place <span aria-hidden="true">↗</span></button></div> : <div className="journal-detail"><p className="eyebrow">Notes from below</p><p>Select a trace for a clue, or a collected object for its story.</p></div>}
-      {complete && <div className="journal-complete">✧ The starwhale is awake. Visit the midnight archive to see what your discoveries called home.</div>}
+      {reward.unlocked && <div className="journal-complete">☾ Moonlight unlocked. Use the sun/moon button to change the light. This reward stays yours across new expeditions.</div>}
       <div className="restart-expedition"><h3>A different current.</h3><p>Start over with an empty journal. Each object keeps its depth and finds a new hiding place.</p><button disabled={!ready} onClick={resetExpedition}>Start a new expedition</button></div>
-      <p className="save-note">{saved ? 'Your discoveries are saved on this device.' : 'Discoveries will stay with you for this visit. Device storage is unavailable.'}</p>
+      <p className="save-note">{saved ? 'Your discoveries and unlocked rewards are saved on this device.' : 'Discoveries will stay with you for this visit. Device storage is unavailable.'}</p>
     </dialog>
   </main>;
 }

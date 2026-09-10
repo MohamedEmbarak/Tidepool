@@ -55,7 +55,27 @@ export function relicModel(id: RelicId): T.Group {
     g.add(line([new T.Vector3(-0.17, -0.28, 0.2), new T.Vector3(0, 0.32, 0.2), new T.Vector3(0.17, -0.1, 0.2)], 0.022, '#b1fbeb', 1.5));
     g.add(line([new T.Vector3(-0.12, 0.05, 0.2), new T.Vector3(0.19, 0.17, 0.2)], 0.018, '#b1fbeb', 1.5));
   } else {
-    g.add(mesh(new T.IcosahedronGeometry(0.43, 1), '#d0bcff', [0, 0, 0], [1, 1, 1], 0.9));
+    const geometry = new T.SphereGeometry(0.72, 64, 40), positions = geometry.getAttribute('position');
+    const colors = new Float32Array(positions.count * 3), normal = new T.Vector3(), tint = new T.Color();
+    const craters = [
+      [-0.32, 0.36, 1, 0.21], [0.35, -0.26, 1, 0.27], [0.43, 0.51, 0.8, 0.12],
+      [-0.55, -0.35, 0.7, 0.15], [0.02, 0.74, 0.7, 0.1], [-0.12, -0.7, 0.7, 0.11],
+      [1, 0.2, 0.1, 0.23], [-1, 0.5, 0.1, 0.19], [0.2, -0.1, -1, 0.28], [-0.4, 0.6, -1, 0.17],
+    ].map(([x, y, z, radius]) => ({ center: new T.Vector3(x, y, z).normalize(), radius }));
+    for (let i = 0; i < positions.count; i++) {
+      normal.fromBufferAttribute(positions, i).normalize(); let relief = 0, shade = 1;
+      for (const crater of craters) {
+        const d = Math.acos(T.MathUtils.clamp(normal.dot(crater.center), -1, 1)) / crater.radius;
+        if (d < 1.3) { relief += -0.045 * Math.max(0, 1 - d * d) + 0.018 * Math.exp(-Math.pow((d - 1) * 9, 2)); shade -= 0.22 * Math.max(0, 1 - d); }
+      }
+      const maria = Math.sin(normal.x * 7 + normal.z * 3) * Math.sin(normal.y * 6 - normal.x * 2);
+      shade *= 0.82 + 0.18 * Math.min(1, maria + 0.6);
+      normal.multiplyScalar(0.72 + relief); positions.setXYZ(i, normal.x, normal.y, normal.z);
+      tint.set('#e5e5d8').multiplyScalar(shade).toArray(colors, i * 3);
+    }
+    geometry.setAttribute('color', new T.BufferAttribute(colors, 3)); geometry.computeVertexNormals();
+    const moon = new T.Mesh(geometry, new T.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, emissive: '#bfcbdc', emissiveIntensity: 0.17 }));
+    moon.name = 'Cratered moon'; g.add(moon);
   }
   return g;
 }
